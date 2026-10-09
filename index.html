@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Download LobsterLoll's 0–300 km/h timer and Keyboard Warrior desktop companion for Windows.">
+  <title>Free Windows apps | LobsterLoll's Loboratory</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #10141c;
+      color: #f4f5f8;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-height: 100vh; }
+    a { color: inherit; }
+
+    .shell { width: min(1080px, calc(100% - 40px)); margin: 0 auto; }
+    header { border-bottom: 1px solid #ffffff19; background: #10141cdd; }
+    .nav { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; font-weight: 800; letter-spacing: .01em; }
+    .brand-mark { font-size: 28px; line-height: 1; }
+    .nav-links { display: flex; gap: 24px; }
+    .nav-link { color: #b9c1d0; text-decoration: none; font-size: 14px; }
+    .nav-link:hover, .nav-link:focus-visible { color: #fff; }
+
+    main {
+      background:
+        radial-gradient(circle at 80% 18%, #e65e4930, transparent 32%),
+        radial-gradient(circle at 18% 50%, #3b87ff17, transparent 34%);
+    }
+
+    .hero { padding: 106px 0 92px; }
+    .eyebrow { display: inline-block; margin: 0 0 18px; color: #ff9e83; font-size: 13px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    h1 { max-width: 760px; margin: 0; font-size: clamp(42px, 7vw, 76px); line-height: 1.04; letter-spacing: -.055em; }
+    h1 span { color: #ff806a; }
+    .intro { max-width: 650px; margin: 26px 0 32px; color: #bdc6d3; font-size: clamp(17px, 2vw, 20px); line-height: 1.6; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+    .download {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      min-height: 56px; padding: 0 24px; border-radius: 12px; background: #ff806a;
+      color: #211318; box-shadow: 0 10px 32px #ff806a30; font-weight: 800;
+      text-decoration: none; transition: transform .15s ease, background .15s ease;
+    }
+    .download:hover, .download:focus-visible { background: #ff9d89; transform: translateY(-2px); }
+    .download:focus-visible, .nav-link:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+    .download-note { color: #8f9aac; font-size: 14px; }
+
+    .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; padding-bottom: 92px; }
+    .card { padding: 26px; border: 1px solid #ffffff1c; border-radius: 18px; background: #1a202c; }
+    .card-number { color: #ff9e83; font-size: 13px; font-weight: 800; }
+    .card h2 { margin: 12px 0 8px; font-size: 20px; }
+    .card p { margin: 0; color: #aeb8c7; font-size: 15px; line-height: 1.55; }
+
+    .how-to { padding: 46px 0 70px; border-top: 1px solid #ffffff19; }
+    .how-to h2 { margin: 0 0 20px; font-size: 28px; }
+    .steps { margin: 0; padding-left: 24px; color: #bdc6d3; line-height: 1.85; }
+    .steps li { padding-left: 5px; }
+    .important { margin: 24px 0 0; color: #98a3b4; font-size: 14px; line-height: 1.6; }
+    .companion { padding: 0 0 90px; }
+    .companion-inner { padding: 38px; border: 1px solid #ffffff1c; border-radius: 20px; background: #1a202c; }
+    .companion h2 { margin: 0; font-size: clamp(30px, 4vw, 44px); letter-spacing: -.035em; }
+    .companion-description { max-width: 680px; margin: 16px 0 24px; color: #bdc6d3; font-size: 17px; line-height: 1.6; }
+    footer { padding: 28px 0; border-top: 1px solid #ffffff19; color: #8f9aac; font-size: 14px; }
+
+    @media (max-width: 720px) {
+      .hero { padding: 76px 0 62px; }
+      .features { grid-template-columns: 1fr; padding-bottom: 64px; }
+      .card { padding: 22px; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav class="nav shell" aria-label="Main navigation">
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">🦞</span> LobsterLoll's Loboratory</a>
+      <div class="nav-links">
+        <a class="nav-link" href="#how-to">Timer guide</a>
+        <a class="nav-link" href="#keyboard-warrior">Keyboard Warrior</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero shell" aria-labelledby="page-title">
+      <p class="eyebrow">Free Windows download</p>
+      <h1 id="page-title">Time every sprint <span>to 300 km/h.</span></h1>
+      <p class="intro">A small always-on-top timer for Roblox Driving Empire. Record your 0–100, 0–200, and 0–300 km/h times in one run, then try to beat your best.</p>
+      <div class="actions">
+        <a class="download" href="downloads/Roblox-0-300-Timer.exe" download="Roblox-0-300-Timer.exe" aria-label="Download Roblox 0 to 300 Timer for Windows"><span aria-hidden="true">↓</span> Download for Windows</a>
+        <span class="download-note">One .exe file · no Python installation</span>
+      </div>
+    </section>
+
+    <section class="features shell" aria-label="Timer features">
+      <article class="card">
+        <span class="card-number">01 / START</span>
+        <h2>Press W at zero</h2>
+        <p>When the speedometer reads 0 km/h, press W to start your run. No extra key combination is needed.</p>
+      </article>
+      <article class="card">
+        <span class="card-number">02 / SPLITS</span>
+        <h2>Three times, one run</h2>
+        <p>See separate 0–100, 0–200, and 0–300 km/h times in the overlay as you accelerate.</p>
+      </article>
+      <article class="card">
+        <span class="card-number">03 / REPEAT</span>
+        <h2>Beat your best</h2>
+        <p>Click Record again for another attempt. The app keeps a separate best time for each milestone.</p>
+      </article>
+    </section>
+
+    <section class="how-to" id="how-to" aria-labelledby="how-title">
+      <div class="shell">
+        <h2 id="how-title">How to use it</h2>
+        <ol class="steps">
+          <li>Download and open the Windows app.</li>
+          <li>Open Driving Empire in a window or borderless window. If the timer cannot see the speed, click <strong>Set speed area</strong> and select the large speed digits.</li>
+          <li>Stop the car at 0 km/h and press <strong>W</strong>. The timer records each milestone automatically.</li>
+        </ol>
+        <p class="important">The app is unsigned, so Windows Smart App Control may block it on some PCs. The timer reads the speed shown on your screen; your display and game settings can affect detection.</p>
+      </div>
+    </section>
+
+    <section class="companion shell" id="keyboard-warrior" aria-labelledby="companion-title">
+      <div class="companion-inner">
+        <p class="eyebrow">Desktop companion</p>
+        <h2 id="companion-title">Meet Keyboard Warrior.</h2>
+        <p class="companion-description">A little dinosaur that sits on your screen and reacts as you type and move your mouse. Drag it where you like, adjust its size and opacity, or lock it in place.</p>
+        <div class="actions">
+          <a class="download" href="https://github.com/lobsterloll/lobsterloll/releases/download/keyboard-warrior-v1.0/KeyboardWarrior.exe" aria-label="Download Keyboard Warrior for Windows"><span aria-hidden="true">↓</span> Download Keyboard Warrior</a>
+          <span class="download-note">Windows 64-bit · one .exe file · no .NET installation</span>
+        </div>
+        <p class="important">Keyboard Warrior is unsigned, so Windows may show a security warning when you open it.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="shell">© LobsterLoll · Free Windows apps</div></footer>
+</body>
+</html>
