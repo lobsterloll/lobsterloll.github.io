@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['app.py'],
-    pathex=[],
+    ['src/app.py'],
+    pathex=['src'],
     binaries=[],
-    datas=[('zero-template.png', '.'), ('app.ico', '.')],
+    datas=[('src/zero-template.png', '.'), ('src/app.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['app.ico'],
+    icon=['src/app.ico'],
 )

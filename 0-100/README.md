@@ -1,23 +1,50 @@
-# Roblox acceleration timer
+# Roblox Driving Empire 0–300 타이머
 
-A small Windows overlay for timing 0–100, 0–200, and 0–300 km/h in one Roblox Driving Empire run.
+Windows에서 Roblox Driving Empire의 화면 속 속도계를 읽고 한 번의 주행에서 0–100, 0–200, 0–300 km/h 시간을 기록하는 오버레이입니다. 최고 기록과 속도계 캡처 영역은 %LOCALAPPDATA%\0-100timer\settings.json에 저장됩니다.
 
-## Run
+## 프로젝트 구조
 
-On this development PC, double-click **OPEN ROBLOX TIMER** on the desktop or in this folder. The shortcut opens `dist/Roblox-0-300-Timer.exe` directly. For another Windows PC, share **Roblox-0-300-Timer.exe** from the `dist` folder: this single-file build bundles Python, the required packages, the speed template, and the icon. It does not require a Python installation. The old `0-100timer.exe` is outdated. An unsigned build can still be blocked by Windows Smart App Control; distribution to protected PCs may require trusted code signing. Keep Driving Empire visible in a window or borderless window. The timer has a normal Windows taskbar button, stays on top, and can be dragged by its title bar.
+- src/app.py: 항상 위에 표시되는 창, 화면 캡처, W 키 감지, 기록 저장.
+- src/timer.py: 속도 숫자 판독과 100/200/300 km/h 도달 시간 계산.
+- src/zero-template.png: 게임 속 0 숫자의 판독 기준.
+- src/app.ico: 앱 아이콘.
+- tests/: 동작 테스트와 fixtures/의 실제 속도계 이미지.
+- 0-100timer.spec: PyInstaller 단일 EXE 빌드 설정.
+- requirements.txt: 실행에 필요한 Python 패키지.
 
-The initial capture area is calibrated to the uploaded 1535 × 862 screenshot. The reader follows the large speed digits at the right edge of that area and ignores separated bright scenery, such as a road stripe. If the game window, display scaling, or HUD changes, click **Set speed area** and drag a box around the large white digits. Include enough empty space to the left for `300`, but exclude `KM/H`, the bars below, and other white HUD elements. Press Esc to cancel selection.
+실행 코드와 테스트 자료는 src/와 tests/에서 관리합니다. 빌드하면 만들어지는 build/, dist/ 및 EXE는 이 프로젝트에 보관하지 않습니다.
 
-Click **Record again**, bring the car to a displayed zero, and press **W** to start. The overlay shows **READY · press W** once it sees zero. Release W before pressing it for a new run; holding W while clicking **Record again** will not start the timer. Space is not used. The 0–100, 0–200, and 0–300 rows freeze separately when the displayed speed reaches each milestone. The live run clock continues until 300 km/h. If the displayed speed skips a milestone between captured frames, that split uses the first later frame. **Record again** keeps separate best times; **Clear bests** removes them. Existing saved 0–100 bests are carried forward. The bests and chosen capture area are saved in `%LOCALAPPDATA%\0-100timer\settings.json`. Each crossing saves `last-trigger-100.png`, `last-trigger-200.png`, or `last-trigger-300.png` there for troubleshooting.
+## 소스에서 실행
 
-## Limits
+Windows에 Python 3.11 이상을 설치한 뒤, 프로젝트 폴더에서 PowerShell을 열어 실행합니다.
 
-The app targets 120 captures per second when the selected speed area is on the primary display. It uses GPU-assisted DirectX desktop capture and copies only the selected speed area back for CPU digit recognition. Precise Windows waits pace captures roughly 8.33 ms apart; after a slow capture, the next capture starts promptly without a burst of catch-up frames. Identical pixel samples reuse the previous digit reading, while W input and split timestamps are still processed on every sample. A ten-second measured interval on this PC held 120 captures in each second at about 0.15 CPU cores; heavier GPU load produced lower rates in other tests. The title shows the actual completed capture rate, not the target. A fixed 120 rate is not guaranteed under load, and the current 60 Hz display means some samples repeat the same game frame. If DirectX capture fails, the app uses a slower CPU fallback and retries DirectX every two seconds. Areas outside the primary display use the fallback. The CPU still handles digit recognition and the window; this is not a GPU-only program. Split times use the frame's capture timestamp, so image-processing time does not add to the recorded result. Display and sampling delay still remain: the app cannot measure physical vehicle speed between displayed updates. The speed reader is calibrated for this screenshot's white, bold numeral style. It checks the first digit's shape against the calibrated zero so `111` cannot be mistaken for `200`. The saved `111` and `304` trigger images are included as regression samples. The 200 check also uses the real `2` glyph from the game's `126` sample; a full in-game 200 screenshot would let us verify that threshold directly. Confirm the overlay shows **READY · press W** at zero before a run. If other white objects enter the chosen area, tighten the selection. Keyboard checks use the Windows key state, so the Roblox window may stay focused.
+    python -m pip install -r requirements.txt
+    python src/app.py
 
-## Test
+콘솔 창 없이 소스에서 실행하려면 pythonw src/app.py를 사용합니다. 이 PC의 바탕화면과 프로젝트 폴더에 있는 **OPEN ROBLOX TIMER** 바로 가기는 D:\github\lobsterloll\downloads\Roblox-0-300-Timer.exe를 엽니다. 이 EXE는 웹사이트 배포용이며 소스 프로젝트 밖에 있습니다. 다른 PC에서 소스를 실행하려면 먼저 위의 패키지를 설치해야 합니다.
 
-Run `python -m unittest -v` from this folder. The included HUD crops verify zero and 100 detection, including the case where a bright road stripe enters the capture area. The saved `111` and `304` frames, a reconstructed 200 sample using the game's actual `2`, generated digit samples, and state tests cover the three split times. Additional cache regressions check that repeated images still detect a new W press, preserve all three split timestamps, and invalidate readings after a capture-area change.
+## 테스트
 
-## Build from source
+프로젝트 폴더에서 다음 명령을 실행합니다.
 
-Install Python 3.11 or newer, then run `python -m pip install -r requirements.txt pyinstaller`. Build the single-file Windows executable with `python -m PyInstaller --noconfirm --clean 0-100timer.spec`. The spec includes both `zero-template.png` and `app.ico` as runtime data. The output is `dist/Roblox-0-300-Timer.exe`.
+    python -m unittest discover -s tests -t . -v
+
+테스트는 실제 HUD 이미지의 0/100/300 판독, 200 오인 방지, W 키 시작, 각 구간 기록, 같은 이미지가 연속 캡처될 때의 입력 처리 등을 확인합니다.
+
+## 단일 EXE 빌드
+
+프로젝트 폴더에서 실행합니다.
+
+    python -m pip install -r requirements.txt pyinstaller
+    python -m PyInstaller --noconfirm --clean 0-100timer.spec
+    .\dist\Roblox-0-300-Timer.exe
+
+빌드 결과는 dist/Roblox-0-300-Timer.exe입니다. 한 파일에 Python, 라이브러리, 기준 이미지와 아이콘이 들어가므로 다른 Windows PC에는 Python 설치가 필요하지 않습니다. EXE는 빌드 결과물이므로 소스 폴더를 정리할 때 삭제해도 위 명령으로 다시 만들 수 있습니다. 서명하지 않은 EXE는 Windows Smart App Control에서 차단할 수 있습니다.
+
+## 사용 방법
+
+Driving Empire를 창 또는 테두리 없는 창 모드로 표시합니다. **Record again**을 누르고 속도계가 0 km/h일 때 READY · press W가 나타나면 W를 눌러 출발합니다. W를 누른 상태에서 **Record again**을 누르면 새 주행이 시작되지 않으므로 W를 떼었다가 다시 누릅니다. Space 키는 사용하지 않습니다.
+
+속도계의 표시가 100, 200, 300 km/h를 넘는 첫 캡처에서 각 기록이 고정됩니다. **Clear bests**는 최고 기록을 삭제합니다. HUD 위치가 달라졌다면 **Set speed area**에서 큰 흰색 속도 숫자만 선택하고, KM/H와 아래쪽 막대는 제외합니다. 영역 선택은 Esc로 취소할 수 있습니다.
+
+앱은 기본 화면에서 GPU를 이용하는 DirectX 캡처를 사용하고 초당 120회 캡처를 목표로 합니다. 창 오른쪽 위 CAPTURES/S 수치는 실제 캡처 횟수입니다. GPU 부하가 높으면 속도가 떨어질 수 있고, 화면이 60 Hz이면 일부 캡처에는 같은 게임 프레임이 반복됩니다. 숫자 판독과 창 처리는 CPU에서 수행됩니다. DirectX 캡처가 잠시 실패하면 느린 대체 방식으로 전환하고 다시 시도합니다. 기록은 캡처 시각을 사용하지만, 화면에 표시되지 않은 순간의 실제 차량 속도까지 측정할 수는 없습니다.
