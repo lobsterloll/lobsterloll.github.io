@@ -1,0 +1,4 @@
+Pillow>=11
+mss>=10
+dxcam==0.3.0
+opencv-python-headless==4.14.0.94
