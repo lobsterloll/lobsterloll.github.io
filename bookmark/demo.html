@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PageCraft demo page</title>
+<style>
+body{font:18px/1.6 system-ui,sans-serif;margin:0;color:#233235;background:#f8f5ed}
+header{background:#3b7954;color:white;padding:28px 6vw}
+main{max-width:1000px;margin:auto;padding:30px 6vw}
+h1{margin:0;font-size:3rem}h2{margin-top:0}nav a{color:#e8ffe4;margin-right:22px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
+article{background:#fff;padding:20px;border:2px solid #d0d6c2;border-radius:12px;box-shadow:0 5px 14px #0001}
+button{border:0;border-radius:8px;background:#bd694a;color:white;padding:12px 18px;font:inherit;cursor:pointer}
+.hero{background:#e6e2c6;padding:26px;border-radius:14px;margin-bottom:25px}
+</style>
+</head>
+<body>
+<header><h1>Build a tiny world</h1><nav><a href="#garden">Garden</a><a href="#library">Library</a><a href="#workshop">Workshop</a></nav></header>
+<main>
+<section class="hero"><h2>PageCraft playground</h2><p>Explore an endlessly generating voxel landscape over this page. The original webpage stays underneath until you exit.</p><button id="launch">Launch voxel world</button></section>
+<div class="cards">
+<article id="garden"><h2>Garden</h2><p>Green leaves, bright paths, and a place to explore.</p><a href="#garden">Walk this way</a></article>
+<article id="library"><h2>Library</h2><p>Keep walking to load new hills, lowlands, and trees.</p><a href="#library">Read more</a></article>
+<article id="workshop"><h2>Workshop</h2><p>Break blocks and place your own structures.</p><button type="button">Create</button></article>
+</div>
+</main>
+<script>document.getElementById('launch').addEventListener('click',()=>{const s=document.createElement('script');s.src='voxel-bookmarklet.js';document.body.appendChild(s)})</script>
+</body></html>

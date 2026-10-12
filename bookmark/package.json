@@ -1,0 +1,13 @@
+{
+  "name": "pagecraft-bookmarklet",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Launch an expanding Minecraft-style voxel world from a bookmark",
+  "scripts": {
+    "build": "node scripts/build.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.11",
+    "pngjs": "^7.0.0"
+  }
+}
