@@ -1,0 +1,9 @@
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+/work/
+/.gradle/
+/build/
+/run/
+/outputs/
+/.idea/
+*.iml

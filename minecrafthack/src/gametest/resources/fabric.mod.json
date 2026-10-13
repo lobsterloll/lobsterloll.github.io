@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "lobster_client_test",
+  "version": "1.0.0",
+  "name": "Lobster Client Tests",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": ["dev.lobster.client.ClientSmokeTest"]
+  }
+}
