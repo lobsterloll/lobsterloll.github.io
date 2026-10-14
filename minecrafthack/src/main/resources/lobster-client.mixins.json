@@ -2,6 +2,7 @@
   "required": true,
   "package": "dev.lobster.client.mixin",
   "compatibilityLevel": "JAVA_25",
-  "client": ["CameraMixin", "EntityMixin", "KeyboardInputMixin", "LightmapMixin", "MinecraftMixin", "MovePacketMixin"],
+  "mixins": ["ServerGamePacketListenerMixin"],
+  "client": ["CameraMixin", "EntityMixin", "KeyboardInputMixin", "LightmapMixin", "LocalPlayerMixin", "MinecraftMixin", "MovePacketMixin"],
   "injectors": { "defaultRequire": 1 }
 }

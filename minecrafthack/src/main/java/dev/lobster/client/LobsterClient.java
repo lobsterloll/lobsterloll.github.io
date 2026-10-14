@@ -1,11 +1,18 @@
 package dev.lobster.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.lobster.VeinminerServer;
+import dev.lobster.VeinminerServer.TogglePayload;
+import dev.lobster.VeinminerServer.HitboxTogglePayload;
 import java.io.IOException;
 import java.nio.file.Path;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.fabricmc.loader.api.FabricLoader;
@@ -15,6 +22,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.gizmos.Gizmos;
+import net.minecraft.gizmos.GizmoStyle;
 import net.minecraft.resources.Identifier;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
@@ -28,6 +37,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class LobsterClient implements ClientModInitializer {
+    public static final float HITBOX_MARGIN = VeinminerServer.HITBOX_MARGIN;
     public static final ClientConfig CONFIG = new ClientConfig();
     public static final OreTools ORES = new OreTools();
     private static final Logger LOGGER = LoggerFactory.getLogger("lobster-client");
@@ -53,8 +63,13 @@ public final class LobsterClient implements ClientModInitializer {
         freecamKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lobster_client.freecam", InputConstants.KEY_F6, category));
         panicKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lobster_client.panic", InputConstants.KEY_END, category));
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            syncVeinminer();
+            syncHitbox();
+        });
         HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT,
             Identifier.fromNamespaceAndPath("lobster_client", "hud"), LobsterClient::renderHud);
+        LevelRenderEvents.BEFORE_GIZMOS.register(LobsterClient::renderHitboxes);
         LOGGER.info("Lobster Client initialized for Minecraft 26.3");
     }
 
@@ -64,6 +79,22 @@ public final class LobsterClient implements ClientModInitializer {
 
     public static boolean freecam() {
         return enabled(Module.FREECAM) && cameraPosition != null;
+    }
+
+    public static boolean serverVeinminer() {
+        return Minecraft.getInstance().getConnection() != null && ClientPlayNetworking.canSend(TogglePayload.TYPE);
+    }
+
+    private static void syncVeinminer() {
+        if (serverVeinminer()) {
+            ClientPlayNetworking.send(new TogglePayload(enabled(Module.VEINMINER)));
+        }
+    }
+
+    private static void syncHitbox() {
+        if (Minecraft.getInstance().getConnection() != null && ClientPlayNetworking.canSend(HitboxTogglePayload.TYPE)) {
+            ClientPlayNetworking.send(new HitboxTogglePayload(enabled(Module.HITBOX)));
+        }
     }
 
     public static boolean target(Entity entity) {
@@ -88,8 +119,14 @@ public final class LobsterClient implements ClientModInitializer {
         if (module == Module.FREECAM && !enabled(module)) {
             cameraPosition = null;
         }
-        if (module == Module.VEINMINER && !enabled(module)) {
-            ORES.stopMining(client);
+        if (module == Module.VEINMINER) {
+            if (!enabled(module)) {
+                ORES.stopMining(client);
+            }
+            syncVeinminer();
+        }
+        if (module == Module.HITBOX) {
+            syncHitbox();
         }
         save();
     }
@@ -99,6 +136,8 @@ public final class LobsterClient implements ClientModInitializer {
         cameraPosition = null;
         ORES.stopMining(Minecraft.getInstance());
         ORES.reset();
+        syncVeinminer();
+        syncHitbox();
         save();
     }
 
@@ -146,6 +185,10 @@ public final class LobsterClient implements ClientModInitializer {
             return;
         }
         if (client.gui.screen() != null || client.gameMode.isSpectator()) {
+            if (client.gui.screen() instanceof ToggleScreen && enabled(Module.FLIGHT)
+                && !client.player.isPassenger() && !client.gameMode.isSpectator()) {
+                client.player.setDeltaMovement(Vec3.ZERO);
+            }
             return;
         }
         if (enabled(Module.AUTO_SPRINT) && client.options.keyUp.isDown()
@@ -170,17 +213,18 @@ public final class LobsterClient implements ClientModInitializer {
                     double difference = surface - client.player.getY();
                     if (difference > -0.15 && difference < 0.5 && client.player.getDeltaMovement().y < 0.1) {
                         Vec3 velocity = client.player.getDeltaMovement();
-                        client.player.setDeltaMovement(velocity.x, Math.max(0.08, difference), velocity.z);
+                        double lift = client.options.keyJump.isDown() ? 0.42 : Math.max(0, difference);
+                        client.player.setDeltaMovement(velocity.x, lift, velocity.z);
                     }
                 }
             }
         }
-        if (enabled(Module.KILL_AURA) && !client.player.isUsingItem() && client.player.getAttackStrengthScale(0) >= 1) {
+        if (enabled(Module.KILL_AURA) && !client.player.isUsingItem() && client.player.getAttackStrengthScale(0) >= 0.85F) {
             LivingEntity closest = null;
-            double distance = client.player.entityInteractionRange();
-            double nearest = distance * distance;
+            double nearest = Double.POSITIVE_INFINITY;
             for (Entity entity : client.level.entitiesForRendering()) {
-                if (!target(entity) || client.player.isAlliedTo(entity) || !client.player.hasLineOfSight(entity)) {
+                if (!target(entity) || client.player.isAlliedTo(entity) || !client.player.hasLineOfSight(entity)
+                    || !client.player.isWithinAttackRange(client.player.getMainHandItem(), entity.getBoundingBox(), 0)) {
                     continue;
                 }
                 double candidate = entity.getBoundingBox().distanceToSqr(client.player.getEyePosition());
@@ -212,6 +256,21 @@ public final class LobsterClient implements ClientModInitializer {
         cameraPitch = Mth.clamp(cameraPitch + (float) pitch * 0.15F, -90, 90);
     }
 
+    private static void renderHitboxes(LevelRenderContext context) {
+        Minecraft client = Minecraft.getInstance();
+        if (!enabled(Module.HITBOX) || client.level == null) {
+            return;
+        }
+        try (var gizmos = context.levelRenderer().collectPerFrameRenderThreadGizmos()) {
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (target(entity)) {
+                    Gizmos.cuboid(entity.getBoundingBox().inflate(entity.getPickRadius()),
+                        GizmoStyle.stroke(0xFFFFD68A)).setAlwaysOnTop();
+                }
+            }
+        }
+    }
+
     private static void renderHud(GuiGraphicsExtractor graphics, DeltaTracker delta) {
         Minecraft client = Minecraft.getInstance();
         if (client.player == null || !enabled(Module.HUD)) {
@@ -230,16 +289,12 @@ public final class LobsterClient implements ClientModInitializer {
             }
         }
         if (enabled(Module.ORE_LOCATOR)) {
-            y += 6;
             for (OreTools.Ore ore : ORES.nearest()) {
-                if (!client.level.getBlockState(ore.position()).is(ore.block())) {
+                if (!client.level.hasChunkAt(ore.position()) || !client.level.getBlockState(ore.position()).is(ore.block())) {
                     continue;
                 }
                 BlockPos block = ore.position();
                 String name = ore.block().getName().getString();
-                String label = name + ": " + block.getX() + ", " + block.getY() + ", " + block.getZ();
-                graphics.text(client.font, label, 10, y, 0xFFFFD68A);
-                y += 11;
                 Vec3 center = Vec3.atCenterOf(block);
                 Vec3 offset = center.subtract(client.gameRenderer.mainCamera().position());
                 if (offset.dot(Vec3.directionFromRotation(client.gameRenderer.mainCamera().xRot(), client.gameRenderer.mainCamera().yRot())) <= 0) {

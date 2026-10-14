@@ -5,8 +5,11 @@
   "name": "Lobster Client",
   "description": "A modular client toolkit for single-player and permitted private servers.",
   "authors": ["lobsterloll"],
-  "environment": "client",
-  "entrypoints": { "client": ["dev.lobster.client.LobsterClient"] },
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.lobster.VeinminerServer"],
+    "client": ["dev.lobster.client.LobsterClient"]
+  },
   "mixins": ["lobster-client.mixins.json"],
   "depends": {
     "fabricloader": ">=0.19.5",

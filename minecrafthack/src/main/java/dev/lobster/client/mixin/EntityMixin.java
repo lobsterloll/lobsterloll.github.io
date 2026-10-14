@@ -24,7 +24,7 @@ public abstract class EntityMixin {
     private void lobster$targetMargin(CallbackInfoReturnable<Float> cir) {
         Entity entity = (Entity) (Object) this;
         if (entity.level().isClientSide() && LobsterClient.enabled(Module.HITBOX) && LobsterClient.target(entity)) {
-            cir.setReturnValue(cir.getReturnValue() + 0.35F);
+            cir.setReturnValue(cir.getReturnValue() + LobsterClient.HITBOX_MARGIN);
         }
     }
 }
