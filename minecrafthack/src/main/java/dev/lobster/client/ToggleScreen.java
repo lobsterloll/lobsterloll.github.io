@@ -19,21 +19,38 @@ public final class ToggleScreen extends Screen {
         int left = width / 2 - buttonWidth - 6;
         int top = Math.max(38, height / 2 - 82);
         Module[] modules = Module.values();
+        int rowHeight = 21;
         for (int i = 0; i < modules.length; i++) {
             Module module = modules[i];
+            int x = left + (i % 2) * (buttonWidth + 12);
+            int y = top + (i / 2) * rowHeight;
             Button button = Button.builder(label(module), clicked -> {
                 LobsterClient.toggle(module);
                 clicked.setMessage(label(module));
-            }).bounds(left + (i % 2) * (buttonWidth + 12), top + (i / 2) * 23, buttonWidth, 20).build();
+            }).bounds(x, y, module == Module.AUTO_EAT || module == Module.AUTO_EXP ? buttonWidth - 30 : buttonWidth, 20).build();
             button.setTooltip(Tooltip.create(Component.literal(module.category + " - " + module.description)));
             addRenderableWidget(button);
+            if (module == Module.AUTO_EAT) {
+                Button settings = Button.builder(Component.literal("..."), clicked ->
+                    minecraft.gui.setScreen(new AutoEatScreen(this)))
+                    .bounds(x + buttonWidth - 29, y, 29, 20).build();
+                settings.setTooltip(Tooltip.create(Component.literal("Auto Eat settings")));
+                addRenderableWidget(settings);
+            }
+            if (module == Module.AUTO_EXP) {
+                Button settings = Button.builder(Component.literal("..."), clicked ->
+                    minecraft.gui.setScreen(new AutoExpScreen(this)))
+                    .bounds(x + buttonWidth - 29, y, 29, 20).build();
+                settings.setTooltip(Tooltip.create(Component.literal("Auto EXP settings")));
+                addRenderableWidget(settings);
+            }
         }
         addRenderableWidget(Button.builder(Component.literal("Disable all"), clicked -> {
             LobsterClient.disableAll();
             rebuildWidgets();
-        }).bounds(left + buttonWidth + 12, top + 6 * 23, buttonWidth, 20).build());
+        }).bounds(left, top + ((modules.length + 1) / 2) * rowHeight, buttonWidth, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Done"), clicked -> onClose())
-            .bounds(width / 2 - 50, top + 170, 100, 20).build());
+            .bounds(left + buttonWidth + 12, top + ((modules.length + 1) / 2) * rowHeight, buttonWidth, 20).build());
     }
 
     private Component label(Module module) {

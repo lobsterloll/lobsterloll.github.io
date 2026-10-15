@@ -1,16 +1,25 @@
 package dev.lobster.client;
 
+import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.lobster.VeinminerServer;
+import java.util.UUID;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
@@ -47,9 +56,23 @@ public final class ClientSmokeTest implements FabricClientGameTest {
                 if (!foundPig) {
                     throw new AssertionError("Test pig did not load");
                 }
+                var otherPlayer = new RemotePlayer(client.level, new GameProfile(UUID.randomUUID(), "LobsterTest"));
+                if (!client.shouldEntityAppearGlowing(otherPlayer) || otherPlayer.getTeamColor() != 0xFF4444) {
+                    throw new AssertionError("Player ESP did not use a red outline");
+                }
             });
             context.waitTicks(5);
             context.takeScreenshot("lobster-hitbox");
+            world.getServer().runCommand("setblock -2 100 5 chest");
+            world.getServer().runCommand("setblock 0 100 5 barrel");
+            world.getServer().runCommand("setblock 2 100 5 shulker_box");
+            world.getServer().runCommand("fill -2 100 3 2 101 3 stone");
+            context.runOnClient(client -> LobsterClient.toggle(Module.STORAGE_ESP));
+            context.waitTicks(5);
+            context.takeScreenshot("lobster-storage-esp");
+            context.runOnClient(client -> LobsterClient.toggle(Module.STORAGE_ESP));
+            world.getServer().runCommand("fill -2 100 3 2 101 3 air");
+            world.getServer().runCommand("fill -2 100 5 2 100 5 air");
             context.waitTicks(160);
             context.takeScreenshot("lobster-ore-locator");
             context.runOnClient(client -> {
@@ -80,6 +103,21 @@ public final class ClientSmokeTest implements FabricClientGameTest {
             context.waitForScreen(ToggleScreen.class);
             context.waitTicks(5);
             context.takeScreenshot("lobster-menu");
+            context.clickScreenButton("...");
+            context.waitForScreen(AutoEatScreen.class);
+            context.takeScreenshot("lobster-auto-eat-settings");
+            context.clickScreenButton("Food blacklist (9)");
+            context.waitTicks(2);
+            context.takeScreenshot("lobster-auto-eat-blacklist");
+            context.clickScreenButton("Done");
+            context.waitForScreen(AutoEatScreen.class);
+            context.clickScreenButton("Done");
+            context.waitForScreen(ToggleScreen.class);
+            context.runOnClient(client -> client.gui.setScreen(new AutoExpScreen(new ToggleScreen())));
+            context.waitForScreen(AutoExpScreen.class);
+            context.takeScreenshot("lobster-auto-exp-settings");
+            context.clickScreenButton("Done");
+            context.waitForScreen(ToggleScreen.class);
             context.clickScreenButton("Disable all");
             context.runOnClient(client -> {
                 for (Module module : Module.values()) {
@@ -92,6 +130,65 @@ public final class ClientSmokeTest implements FabricClientGameTest {
             context.runOnClient(client -> LobsterClient.toggle(Module.HUD));
             context.waitTicks(5);
             context.takeScreenshot("lobster-hud");
+
+            world.getServer().runCommand("gamemode survival @a");
+            world.getServer().runCommand("clear @a");
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                ItemStack helmet = new ItemStack(Items.DIAMOND_HELMET);
+                helmet.enchant(server.registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.MENDING), 1);
+                helmet.setDamageValue(300);
+                player.setItemSlot(EquipmentSlot.HEAD, helmet);
+                player.getInventory().setItem(9, new ItemStack(Items.EXPERIENCE_BOTTLE, 16));
+            });
+            context.waitTicks(5);
+            context.runOnClient(client -> {
+                LobsterClient.CONFIG.autoExpMode = ClientConfig.ExpMode.ARMOR;
+                LobsterClient.CONFIG.autoExpReplenish = true;
+                LobsterClient.CONFIG.autoExpOnlyGround = false;
+                LobsterClient.CONFIG.autoExpSlot = 6;
+                LobsterClient.CONFIG.autoExpMinThreshold = 30;
+                LobsterClient.CONFIG.autoExpMaxThreshold = 80;
+                LobsterClient.toggle(Module.AUTO_EXP);
+            });
+            context.waitTicks(80);
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                if (player.getItemBySlot(EquipmentSlot.HEAD).getDamageValue() >= 300) {
+                    throw new AssertionError("Auto EXP did not repair Mending armor on the server");
+                }
+                if (!player.getInventory().getItem(9).isEmpty()) {
+                    throw new AssertionError("Auto EXP did not replenish bottles from inventory");
+                }
+            });
+            context.runOnClient(client -> {
+                if (client.player.getInventory().getSelectedSlot() != 0) {
+                    throw new AssertionError("Auto EXP did not restore the selected hotbar slot");
+                }
+                LobsterClient.toggle(Module.AUTO_EXP);
+            });
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                player.setItemSlot(EquipmentSlot.HEAD, ItemStack.EMPTY);
+                ItemStack pickaxe = new ItemStack(Items.DIAMOND_PICKAXE);
+                pickaxe.enchant(server.registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.MENDING), 1);
+                pickaxe.setDamageValue(1400);
+                player.getInventory().setItem(0, pickaxe);
+                player.getInventory().setItem(5, new ItemStack(Items.EXPERIENCE_BOTTLE, 8));
+            });
+            context.waitTicks(5);
+            context.runOnClient(client -> {
+                LobsterClient.CONFIG.autoExpMode = ClientConfig.ExpMode.HANDS;
+                LobsterClient.toggle(Module.AUTO_EXP);
+            });
+            context.waitTicks(60);
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                if (player.getInventory().getItem(0).getDamageValue() >= 1400) {
+                    throw new AssertionError("Auto EXP did not repair the held Mending tool on the server");
+                }
+            });
+            context.runOnClient(client -> LobsterClient.toggle(Module.AUTO_EXP));
 
             world.getServer().runCommand("gamemode survival @a");
             world.getServer().runCommand("tp @a 0 100 0 180 0");
@@ -113,6 +210,33 @@ public final class ClientSmokeTest implements FabricClientGameTest {
                 LobsterClient.toggle(Module.KILL_AURA);
                 LobsterClient.toggle(Module.VEINMINER);
             });
+            world.getServer().runCommand("summon pig 0 100 2 {NoAI:1b,NoGravity:1b}");
+            world.getServer().runCommand("tp @a 0.0 100.0 0.0 0 0");
+            context.waitTicks(20);
+            context.getInput().lookAt(new BlockPos(0, 100, 2));
+            context.waitTicks(2);
+            double standingY = context.computeOnClient(client -> client.player.getY());
+            context.runOnClient(client -> {
+                LobsterClient.toggle(Module.AUTO_CRIT);
+                if (!(client.hitResult instanceof EntityHitResult hit) || !(hit.getEntity() instanceof Pig)) {
+                    throw new AssertionError("Auto Crit test did not aim at the pig");
+                }
+            });
+            context.getInput().holdKeyFor(options -> options.keyAttack, 2);
+            context.waitTicks(8);
+            context.runOnClient(client -> {
+                if (Math.abs(client.player.getY() - standingY) > 0.01) {
+                    throw new AssertionError("Auto Crit visibly moved the player");
+                }
+            });
+            world.getServer().runOnServer(server -> {
+                Pig pig = server.overworld().getEntitiesOfClass(Pig.class, new AABB(-1, 99, 1, 1, 102, 3)).getFirst();
+                if (pig.getHealth() >= 10) {
+                    throw new AssertionError("Auto Crit did not deal server-side critical damage: " + pig.getHealth());
+                }
+            });
+            context.runOnClient(client -> LobsterClient.toggle(Module.AUTO_CRIT));
+            world.getServer().runCommand("kill @e[type=minecraft:pig]");
             world.getServer().runCommand("summon pig -3 100 2 {NoAI:1b,NoGravity:1b}");
             world.getServer().runCommand("tp @a 0 100 0 0 0");
             context.waitTicks(5);
@@ -168,7 +292,8 @@ public final class ClientSmokeTest implements FabricClientGameTest {
                 }
             });
             context.runOnClient(client -> LobsterClient.toggle(Module.HITBOX));
-            world.getServer().runCommand("item replace entity @a weapon.mainhand with diamond_pickaxe");
+            world.getServer().runCommand("item replace entity @a hotbar.0 with wooden_pickaxe");
+            world.getServer().runCommand("item replace entity @a hotbar.1 with diamond_pickaxe");
             world.getServer().runCommand("gamemode survival @a");
             world.getServer().runCommand("tp @a 0.0 100.0 0.0 0 0");
             world.getServer().runCommand("setblock 2 100 2 air");
@@ -181,8 +306,17 @@ public final class ClientSmokeTest implements FabricClientGameTest {
             if (!context.computeOnClient(client -> LobsterClient.serverVeinminer())) {
                 throw new AssertionError("Packaged Veinminer server support was not available");
             }
+            context.runOnClient(client -> {
+                client.player.getInventory().setSelectedSlot(0);
+                LobsterClient.toggle(Module.AUTO_TOOL);
+            });
             context.getInput().lookAt(new BlockPos(0, 101, 2));
             context.getInput().holdKeyFor(options -> options.keyAttack, 2);
+            context.runOnClient(client -> {
+                if (client.player.getInventory().getSelectedSlot() != 1) {
+                    throw new AssertionError("Auto Tool did not select the diamond pickaxe for diamond ore");
+                }
+            });
             context.waitTicks(25);
             world.getServer().runOnServer(server -> {
                 if (!server.overworld().getBlockState(new BlockPos(0, 101, 2)).is(Blocks.DIAMOND_ORE)) {
@@ -216,7 +350,137 @@ public final class ClientSmokeTest implements FabricClientGameTest {
                     throw new AssertionError("Veinminer did not apply normal pickaxe wear");
                 }
             });
-            context.runOnClient(client -> LobsterClient.toggle(Module.VEINMINER));
+            context.runOnClient(client -> {
+                LobsterClient.toggle(Module.VEINMINER);
+                LobsterClient.toggle(Module.AUTO_TOOL);
+            });
+
+            world.getServer().runCommand("item replace entity @a hotbar.1 with golden_apple");
+            world.getServer().runCommand("item replace entity @a hotbar.2 with cooked_beef");
+            world.getServer().runOnServer(server -> {
+                var food = server.getPlayerList().getPlayers().getFirst().getFoodData();
+                food.setFoodLevel(8);
+                food.setSaturation(0);
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                client.player.getInventory().setSelectedSlot(0);
+                LobsterClient.toggle(Module.AUTO_EAT);
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                if (client.player.getInventory().getSelectedSlot() != 2 || !client.player.isUsingItem()
+                    || !client.options.keyUse.isDown()) {
+                    throw new AssertionError("Auto Eat did not choose and use safe food");
+                }
+            });
+            context.waitTicks(45);
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                if (player.getFoodData().getFoodLevel() <= 8 || player.getInventory().getItem(2).getCount() != 0
+                    || player.getInventory().getItem(1).getCount() != 1) {
+                    throw new AssertionError("Auto Eat did not consume beef while leaving golden apple untouched");
+                }
+            });
+            context.runOnClient(client -> {
+                if (client.player.getInventory().getSelectedSlot() != 0 || client.options.keyUse.isDown()) {
+                    throw new AssertionError("Auto Eat did not restore the previous slot and release use");
+                }
+                LobsterClient.toggle(Module.AUTO_EAT);
+            });
+
+            world.getServer().runCommand("item replace entity @a weapon.offhand with cooked_chicken");
+            world.getServer().runCommand("item replace entity @a hotbar.2 with bread");
+            world.getServer().runOnServer(server -> {
+                var food = server.getPlayerList().getPlayers().getFirst().getFoodData();
+                food.setFoodLevel(8);
+                food.setSaturation(0);
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> LobsterClient.toggle(Module.AUTO_EAT));
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                if (client.player.getInventory().getSelectedSlot() != 0 || !client.player.isUsingItem()
+                    || client.player.getUsedItemHand() != InteractionHand.OFF_HAND) {
+                    throw new AssertionError("Auto Eat did not prefer offhand food");
+                }
+            });
+            context.waitTicks(45);
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                if (player.getFoodData().getFoodLevel() <= 8 || !player.getOffhandItem().isEmpty()
+                    || player.getInventory().getItem(2).getCount() != 1) {
+                    throw new AssertionError("Auto Eat did not finish offhand food before hotbar food");
+                }
+            });
+            context.runOnClient(client -> LobsterClient.toggle(Module.AUTO_EAT));
+
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                player.getInventory().setItem(2, ItemStack.EMPTY);
+                player.getInventory().setItem(9, new ItemStack(Items.COOKED_BEEF));
+                player.getFoodData().setFoodLevel(8);
+                player.getFoodData().setSaturation(0);
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                LobsterClient.CONFIG.autoEatSearchInventory = true;
+                LobsterClient.toggle(Module.AUTO_EAT);
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                if (client.player.getInventory().getSelectedSlot() != 2 || !client.player.isUsingItem()
+                    || !client.player.getInventory().getItem(9).isEmpty()) {
+                    throw new AssertionError("Auto Eat did not move inventory food into an empty hotbar slot");
+                }
+            });
+            context.waitTicks(45);
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                if (player.getFoodData().getFoodLevel() <= 8 || !player.getInventory().getItem(2).isEmpty()) {
+                    throw new AssertionError("Auto Eat did not consume food moved from the inventory");
+                }
+            });
+            context.runOnClient(client -> {
+                if (client.player.getInventory().getSelectedSlot() != 0) {
+                    throw new AssertionError("Auto Eat did not restore the slot after inventory food");
+                }
+                LobsterClient.toggle(Module.AUTO_EAT);
+                LobsterClient.CONFIG.autoEatSearchInventory = false;
+            });
+
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                player.getInventory().setItem(2, new ItemStack(Items.COOKED_BEEF));
+                player.getFoodData().setFoodLevel(19);
+                player.getFoodData().setSaturation(0);
+                player.setHealth(8);
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                LobsterClient.CONFIG.autoEatThreshold = ClientConfig.EatThreshold.HUNGER;
+                LobsterClient.toggle(Module.AUTO_EAT);
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                if (client.player.isUsingItem()) {
+                    throw new AssertionError("Hunger-only Auto Eat triggered above the hunger threshold");
+                }
+                LobsterClient.CONFIG.autoEatThreshold = ClientConfig.EatThreshold.HEALTH;
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                if (!client.player.isUsingItem() || client.player.getInventory().getSelectedSlot() != 2) {
+                    throw new AssertionError("Health-triggered Auto Eat did not start");
+                }
+                LobsterClient.toggle(Module.AUTO_EAT);
+                LobsterClient.CONFIG.autoEatThreshold = ClientConfig.EatThreshold.ANY;
+            });
+            world.getServer().runOnServer(server -> {
+                var player = server.getPlayerList().getPlayers().getFirst();
+                player.setHealth(20);
+                player.getFoodData().setFoodLevel(20);
+            });
 
             world.getServer().runCommand("gamemode survival @a");
             world.getServer().runCommand("tp @a 0 100 0 0 0");

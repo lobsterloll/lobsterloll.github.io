@@ -4,6 +4,7 @@ import dev.lobster.client.LobsterClient;
 import dev.lobster.client.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.EntityHitResult;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -23,9 +24,14 @@ public abstract class MinecraftMixin {
     private void lobster$mineVein(boolean held, CallbackInfo ci) {
         if (LobsterClient.freecam()) {
             ci.cancel();
-        } else if (LobsterClient.enabled(Module.VEINMINER)
-            && LobsterClient.ORES.mine((Minecraft) (Object) this, held)) {
-            ci.cancel();
+        } else {
+            if (held) {
+                LobsterClient.selectTool((Minecraft) (Object) this);
+            }
+            if (LobsterClient.enabled(Module.VEINMINER)
+                && LobsterClient.ORES.mine((Minecraft) (Object) this, held)) {
+                ci.cancel();
+            }
         }
     }
 
@@ -33,8 +39,22 @@ public abstract class MinecraftMixin {
     private void lobster$blockFreecamAttack(CallbackInfoReturnable<Boolean> cir) {
         if (LobsterClient.freecam()) {
             cir.setReturnValue(false);
-        } else if (LobsterClient.enabled(Module.VEINMINER)
-            && LobsterClient.ORES.mine((Minecraft) (Object) this, true)) {
+        } else {
+            LobsterClient.selectTool((Minecraft) (Object) this);
+            if (LobsterClient.enabled(Module.VEINMINER)
+                && LobsterClient.ORES.mine((Minecraft) (Object) this, true)) {
+                cir.setReturnValue(false);
+            }
+        }
+    }
+
+    @Inject(method = "startAttack", at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/multiplayer/MultiPlayerGameMode;attack(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/entity/Entity;)V"),
+        cancellable = true)
+    private void lobster$delayManualCrit(CallbackInfoReturnable<Boolean> cir) {
+        Minecraft client = (Minecraft) (Object) this;
+        if (client.hitResult instanceof EntityHitResult hit
+            && LobsterClient.delayCriticalAttack(client.player, hit.getEntity())) {
             cir.setReturnValue(false);
         }
     }

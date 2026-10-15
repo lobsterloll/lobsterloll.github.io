@@ -3,6 +3,7 @@ package dev.lobster.client;
 public enum Module {
     FULLBRIGHT("Fullbright", "Visual", "Brightens dark areas without changing world lighting."),
     ESP("ESP", "Visual", "Outlines nearby mobs and players through walls."),
+    STORAGE_ESP("Storage ESP", "Visual", "Outlines nearby loaded chests, barrels and shulker boxes through walls."),
     ORE_LOCATOR("Ore Locator", "Visual", "Marks nearest ores in loaded chunks within 500 horizontal blocks."),
     FREECAM("Freecam", "Visual", "Detached camera. WASD, jump and sneak to move."),
     AUTO_SPRINT("Auto Sprint", "Movement", "Sprints while moving forward when hunger allows."),
@@ -10,8 +11,12 @@ public enum Module {
     FLIGHT("Flight", "Movement", "WASD, jump and sneak flight. Server dependent."),
     WATER_WALK("Water Walk", "Movement", "Stay on the water surface; jump with Space, sneak to dive. Server dependent."),
     NO_FALL("No Fall", "Movement", "Sends grounded movement while falling. Server dependent."),
+    AUTO_EAT("Auto Eat", "Player", "Eats when health or hunger is low; food choice and thresholds are configurable."),
+    AUTO_EXP("Auto EXP", "Player", "Throws experience bottles to repair Mending armor and held items."),
+    AUTO_TOOL("Auto Tool", "World", "Selects the fastest suitable hotbar tool when mining."),
     VEINMINER("Veinminer", "World", "Break one ore to mine its vein instantly with the server mod, or automatically at normal speed elsewhere."),
     KILL_AURA("Kill Aura", "Combat", "Automatically attacks the nearest mob/player in the held weapon's reach from any direction at 85% cooldown."),
+    AUTO_CRIT("Auto Crit", "Combat", "Attempts critical hits without a visible hop; anti-cheat may block it."),
     HITBOX("Hitbox Increase", "Combat", "Adds 4 blocks to mob/player attack targeting. Full reach needs the server mod."),
     HUD("HUD", "Visual", "Shows your coordinates, enabled modules and ore markers.");
 

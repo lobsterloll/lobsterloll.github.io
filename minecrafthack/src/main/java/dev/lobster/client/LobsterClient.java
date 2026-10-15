@@ -21,17 +21,34 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gizmos.Gizmos;
 import net.minecraft.gizmos.GizmoStyle;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.resources.Identifier;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
+import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +64,13 @@ public final class LobsterClient implements ClientModInitializer {
     public static float cameraYaw;
     public static float cameraPitch;
     private static ClientLevel lastLevel;
+    private static Entity pendingCriticalTarget;
+    private static CriticalPhase criticalPhase = CriticalPhase.IDLE;
+    private static InteractionHand autoEatHand;
+    private static LocalPlayer autoEatPlayer;
+    private static int autoEatPreviousSlot = -1;
+    private static int autoEatFoodSlot = -1;
+    private static int autoExpRepairingSlot = -1;
     private KeyMapping menuKey;
     private KeyMapping freecamKey;
     private KeyMapping panicKey;
@@ -69,12 +93,36 @@ public final class LobsterClient implements ClientModInitializer {
         });
         HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT,
             Identifier.fromNamespaceAndPath("lobster_client", "hud"), LobsterClient::renderHud);
-        LevelRenderEvents.BEFORE_GIZMOS.register(LobsterClient::renderHitboxes);
+        LevelRenderEvents.BEFORE_GIZMOS.register(LobsterClient::renderHighlights);
         LOGGER.info("Lobster Client initialized for Minecraft 26.3");
     }
 
     public static boolean enabled(Module module) {
         return CONFIG.enabled(module);
+    }
+
+    public static void selectTool(Minecraft client) {
+        if (!enabled(Module.AUTO_TOOL) || client.player == null || client.level == null
+            || client.player.isCreative() || !(client.hitResult instanceof BlockHitResult hit)) {
+            return;
+        }
+        var state = client.level.getBlockState(hit.getBlockPos());
+        var inventory = client.player.getInventory();
+        int bestSlot = inventory.getSelectedSlot();
+        var current = inventory.getItem(bestSlot);
+        float bestSpeed = current.getDestroySpeed(state);
+        boolean bestHarvest = current.isCorrectToolForDrops(state);
+        for (int slot = 0; slot < Inventory.SELECTION_SIZE; slot++) {
+            var tool = inventory.getItem(slot);
+            float speed = tool.getDestroySpeed(state);
+            boolean harvest = tool.isCorrectToolForDrops(state);
+            if ((harvest && !bestHarvest) || (harvest == bestHarvest && speed > bestSpeed)) {
+                bestSlot = slot;
+                bestSpeed = speed;
+                bestHarvest = harvest;
+            }
+        }
+        inventory.setSelectedSlot(bestSlot);
     }
 
     public static boolean freecam() {
@@ -103,6 +151,87 @@ public final class LobsterClient implements ClientModInitializer {
             && (entity instanceof Mob || entity instanceof Player);
     }
 
+    public static boolean delayCriticalAttack(Player attacker, Entity target) {
+        if (!enabled(Module.AUTO_CRIT) || !(target instanceof LivingEntity)
+            || attacker != Minecraft.getInstance().player || attacker.isPassenger()
+            || attacker.isInWater() || attacker.isInLava() || attacker.onClimbable()
+            || attacker.isMobilityRestricted() || attacker.getAbilities().flying
+            || enabled(Module.FLIGHT) || freecam()) {
+            return false;
+        }
+        if (criticalPhase == CriticalPhase.ATTACK) {
+            return false;
+        }
+        if (criticalPhase == CriticalPhase.RESET) {
+            return true;
+        }
+        if (attacker.fallDistance > 0 && !attacker.onGround() && !attacker.isSprinting()
+            && attacker.getAttackStrengthScale(0.5F) >= 0.99F) {
+            return false;
+        }
+        pendingCriticalTarget = target;
+        if (criticalPhase == CriticalPhase.IDLE) {
+            criticalPhase = CriticalPhase.WAIT;
+        }
+        return true;
+    }
+
+    public static boolean sendCriticalPosition(LocalPlayer player) {
+        if (criticalPhase == CriticalPhase.IDLE || criticalPhase == CriticalPhase.ATTACK) {
+            return false;
+        }
+        if (criticalPhase == CriticalPhase.RESET) {
+            player.connection.send(new ServerboundMovePlayerPacket.Pos(player.position(), player.onGround(), player.horizontalCollision));
+            criticalPhase = CriticalPhase.IDLE;
+            return true;
+        }
+        Entity target = pendingCriticalTarget;
+        if (!enabled(Module.AUTO_CRIT) || target == null || !target.isAlive() || target.level() != player.level()
+            || player.isPassenger() || player.isInWater() || player.isInLava() || player.onClimbable()
+            || player.isMobilityRestricted() || player.getAbilities().flying
+            || enabled(Module.FLIGHT) || freecam() || !player.hasLineOfSight(target)
+            || !player.isWithinAttackRange(player.getMainHandItem(), target.getBoundingBox(),
+                enabled(Module.HITBOX) ? HITBOX_MARGIN : 0)) {
+            boolean wasSpoofing = criticalPhase != CriticalPhase.WAIT;
+            criticalPhase = CriticalPhase.IDLE;
+            pendingCriticalTarget = null;
+            if (wasSpoofing) {
+                player.connection.send(new ServerboundMovePlayerPacket.Pos(player.position(), player.onGround(), player.horizontalCollision));
+            }
+            return wasSpoofing;
+        }
+        if (criticalPhase == CriticalPhase.WAIT) {
+            if (!player.onGround() || player.getAttackStrengthScale(0.5F) < 0.99F) {
+                return false;
+            }
+            criticalPhase = CriticalPhase.UP;
+        }
+        if (criticalPhase == CriticalPhase.UP) {
+            player.connection.send(new ServerboundMovePlayerPacket.Pos(
+                player.getX(), player.getY() + 0.0625, player.getZ(), false, player.horizontalCollision));
+            criticalPhase = CriticalPhase.DOWN;
+            return true;
+        }
+        player.connection.send(new ServerboundMovePlayerPacket.Pos(player.position(), false, player.horizontalCollision));
+        criticalPhase = CriticalPhase.ATTACK;
+        player.connection.send(new ServerboundPlayerCommandPacket(player, ServerboundPlayerCommandPacket.Action.STOP_SPRINTING));
+        Minecraft client = Minecraft.getInstance();
+        client.gameMode.attack(player, target);
+        player.swing(InteractionHand.MAIN_HAND, player.getMainHandItem().getAttackAnimation(), false);
+        if (player.isSprinting()) {
+            player.connection.send(new ServerboundPlayerCommandPacket(player, ServerboundPlayerCommandPacket.Action.START_SPRINTING));
+        }
+        pendingCriticalTarget = null;
+        criticalPhase = CriticalPhase.RESET;
+        return true;
+    }
+
+    private static void cancelCriticalAttack() {
+        criticalPhase = criticalPhase == CriticalPhase.IDLE || criticalPhase == CriticalPhase.WAIT
+            ? CriticalPhase.IDLE : CriticalPhase.RESET;
+        pendingCriticalTarget = null;
+    }
+
     public static void toggle(Module module) {
         Minecraft client = Minecraft.getInstance();
         if (module == Module.FREECAM && !enabled(module)) {
@@ -128,11 +257,23 @@ public final class LobsterClient implements ClientModInitializer {
         if (module == Module.HITBOX) {
             syncHitbox();
         }
+        if (module == Module.AUTO_CRIT && !enabled(module)) {
+            cancelCriticalAttack();
+        }
+        if (module == Module.AUTO_EAT && !enabled(module)) {
+            stopAutoEat(client);
+        }
+        if (module == Module.AUTO_EXP && !enabled(module)) {
+            autoExpRepairingSlot = -1;
+        }
         save();
     }
 
     public static void disableAll() {
         CONFIG.disableAll();
+        cancelCriticalAttack();
+        stopAutoEat(Minecraft.getInstance());
+        autoExpRepairingSlot = -1;
         cameraPosition = null;
         ORES.stopMining(Minecraft.getInstance());
         ORES.reset();
@@ -141,7 +282,7 @@ public final class LobsterClient implements ClientModInitializer {
         save();
     }
 
-    private static void save() {
+    static void save() {
         try {
             CONFIG.save(CONFIG_PATH);
         } catch (IOException error) {
@@ -164,19 +305,25 @@ public final class LobsterClient implements ClientModInitializer {
             }
         }
         if (client.level != lastLevel || client.player == null || !client.player.isAlive()) {
+            stopAutoEat(client);
+            autoExpRepairingSlot = -1;
             lastLevel = client.level;
+            criticalPhase = CriticalPhase.IDLE;
+            pendingCriticalTarget = null;
             if (enabled(Module.FREECAM)) {
                 toggle(Module.FREECAM);
             }
             ORES.reset();
         }
         if (client.player == null || client.level == null || client.isPaused()) {
+            stopAutoEat(client);
             return;
         }
         if (enabled(Module.ORE_LOCATOR)) {
             ORES.scan(client);
         }
         if (freecam()) {
+            stopAutoEat(client);
             previousCameraPosition = cameraPosition;
             if (client.gui.screen() == null) {
                 double speed = client.options.keySprint.isDown() ? 1.5 : 0.6;
@@ -185,12 +332,15 @@ public final class LobsterClient implements ClientModInitializer {
             return;
         }
         if (client.gui.screen() != null || client.gameMode.isSpectator()) {
+            stopAutoEat(client);
             if (client.gui.screen() instanceof ToggleScreen && enabled(Module.FLIGHT)
                 && !client.player.isPassenger() && !client.gameMode.isSpectator()) {
                 client.player.setDeltaMovement(Vec3.ZERO);
             }
             return;
         }
+        tickAutoEat(client);
+        tickAutoExp(client);
         if (enabled(Module.AUTO_SPRINT) && client.options.keyUp.isDown()
             && !client.player.isShiftKeyDown() && !client.player.horizontalCollision
             && !client.player.isUsingItem() && client.player.getFoodData().getFoodLevel() > 6) {
@@ -219,7 +369,9 @@ public final class LobsterClient implements ClientModInitializer {
                 }
             }
         }
-        if (enabled(Module.KILL_AURA) && !client.player.isUsingItem() && client.player.getAttackStrengthScale(0) >= 0.85F) {
+        if (enabled(Module.KILL_AURA) && !client.player.isUsingItem()
+            && (!CONFIG.autoEatPauseAuras || autoEatHand == null)
+            && client.player.getAttackStrengthScale(0) >= 0.85F) {
             LivingEntity closest = null;
             double nearest = Double.POSITIVE_INFINITY;
             for (Entity entity : client.level.entitiesForRendering()) {
@@ -235,9 +387,210 @@ public final class LobsterClient implements ClientModInitializer {
             }
             if (closest != null) {
                 client.gameMode.attack(client.player, closest);
-                client.player.swing(InteractionHand.MAIN_HAND, client.player.getMainHandItem().getAttackAnimation(), false);
+                if (criticalPhase == CriticalPhase.IDLE) {
+                    client.player.swing(InteractionHand.MAIN_HAND, client.player.getMainHandItem().getAttackAnimation(), false);
+                }
             }
         }
+    }
+
+    private static void tickAutoEat(Minecraft client) {
+        LocalPlayer player = client.player;
+        if (!enabled(Module.AUTO_EAT) || player.isCreative() || (autoEatHand != null && player != autoEatPlayer)
+            || (autoEatFoodSlot >= 0 && player.getInventory().getSelectedSlot() != autoEatFoodSlot)) {
+            stopAutoEat(client);
+            return;
+        }
+        boolean lowHealth = player.getHealth() <= CONFIG.autoEatHealth;
+        boolean lowHunger = player.getFoodData().getFoodLevel() <= CONFIG.autoEatHunger;
+        boolean shouldEat = switch (CONFIG.autoEatThreshold) {
+            case HEALTH -> lowHealth;
+            case HUNGER -> lowHunger;
+            case ANY -> lowHealth || lowHunger;
+            case BOTH -> lowHealth && lowHunger;
+        };
+        if (!shouldEat) {
+            stopAutoEat(client);
+            return;
+        }
+        if (autoEatHand != null && player.isUsingItem() && player.getUsedItemHand() == autoEatHand) {
+            client.options.keyUse.setDown(true);
+            return;
+        }
+        if (autoEatHand == null && (player.isHandsBusy() || client.options.keyUse.isDown())) {
+            return;
+        }
+        int foodSlot = findAutoEatFood(player);
+        if (foodSlot < 0) {
+            stopAutoEat(client);
+            return;
+        }
+        if (foodSlot >= Inventory.SELECTION_SIZE && foodSlot != Inventory.SLOT_OFFHAND) {
+            int emptySlot = -1;
+            for (int slot = 0; slot < Inventory.SELECTION_SIZE; slot++) {
+                if (player.getInventory().getItem(slot).isEmpty()) {
+                    emptySlot = slot;
+                    break;
+                }
+            }
+            if (emptySlot < 0) {
+                stopAutoEat(client);
+                return;
+            }
+            client.gameMode.handleContainerInput(player.containerMenu.containerId, foodSlot, emptySlot,
+                ContainerInput.SWAP, player);
+            foodSlot = emptySlot;
+        }
+        if (autoEatHand == null) {
+            autoEatPreviousSlot = player.getInventory().getSelectedSlot();
+            autoEatPlayer = player;
+        }
+        InteractionHand hand = foodSlot == Inventory.SLOT_OFFHAND ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+        autoEatHand = hand;
+        if (hand == InteractionHand.MAIN_HAND) {
+            autoEatFoodSlot = foodSlot;
+            player.getInventory().setSelectedSlot(foodSlot);
+        }
+        client.gameMode.useItem(player, hand);
+        if (player.isUsingItem()) {
+            client.options.keyUse.setDown(true);
+        } else {
+            stopAutoEat(client);
+        }
+    }
+
+    private static void tickAutoExp(Minecraft client) {
+        LocalPlayer player = client.player;
+        if (!enabled(Module.AUTO_EXP) || player.isCreative() || player.isUsingItem()
+            || client.options.keyUse.isDown() || autoEatHand != null
+            || (CONFIG.autoExpOnlyGround && !player.onGround())) {
+            return;
+        }
+        Inventory inventory = player.getInventory();
+        if (autoExpRepairingSlot < 0) {
+            if (CONFIG.autoExpMode != ClientConfig.ExpMode.HANDS) {
+                for (int slot = 36; slot < 40; slot++) {
+                    if (needsExpRepair(inventory.getItem(slot), CONFIG.autoExpMinThreshold)) {
+                        autoExpRepairingSlot = slot;
+                        break;
+                    }
+                }
+            }
+            if (autoExpRepairingSlot < 0 && CONFIG.autoExpMode != ClientConfig.ExpMode.ARMOR) {
+                int selected = inventory.getSelectedSlot();
+                if (needsExpRepair(inventory.getItem(selected), CONFIG.autoExpMinThreshold)) {
+                    autoExpRepairingSlot = selected;
+                } else if (needsExpRepair(inventory.getItem(Inventory.SLOT_OFFHAND), CONFIG.autoExpMinThreshold)) {
+                    autoExpRepairingSlot = Inventory.SLOT_OFFHAND;
+                }
+            }
+        }
+        if (autoExpRepairingSlot < 0) {
+            return;
+        }
+        if (!needsExpRepair(inventory.getItem(autoExpRepairingSlot), CONFIG.autoExpMaxThreshold)) {
+            autoExpRepairingSlot = -1;
+            return;
+        }
+        int bottleSlot = -1;
+        for (int slot = 0; slot < Inventory.SELECTION_SIZE; slot++) {
+            if (inventory.getItem(slot).is(Items.EXPERIENCE_BOTTLE)) {
+                bottleSlot = slot;
+                break;
+            }
+        }
+        if (bottleSlot < 0 && inventory.getItem(Inventory.SLOT_OFFHAND).is(Items.EXPERIENCE_BOTTLE)) {
+            bottleSlot = Inventory.SLOT_OFFHAND;
+        }
+        if (bottleSlot < 0 && CONFIG.autoExpReplenish) {
+            for (int slot = Inventory.SELECTION_SIZE; slot < 36; slot++) {
+                if (inventory.getItem(slot).is(Items.EXPERIENCE_BOTTLE)) {
+                    client.gameMode.handleContainerInput(player.containerMenu.containerId, slot, CONFIG.autoExpSlot - 1,
+                        ContainerInput.SWAP, player);
+                    return;
+                }
+            }
+        }
+        if (bottleSlot < 0) {
+            return;
+        }
+        int selected = inventory.getSelectedSlot();
+        InteractionHand hand = bottleSlot == Inventory.SLOT_OFFHAND ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+        if (hand == InteractionHand.MAIN_HAND) {
+            inventory.setSelectedSlot(bottleSlot);
+        }
+        float pitch = player.getXRot();
+        player.connection.send(new ServerboundMovePlayerPacket.Rot(player.getYRot(), 90, player.onGround(), player.horizontalCollision));
+        client.gameMode.useItem(player, hand);
+        player.connection.send(new ServerboundMovePlayerPacket.Rot(player.getYRot(), pitch, player.onGround(), player.horizontalCollision));
+        if (hand == InteractionHand.MAIN_HAND && inventory.getSelectedSlot() == bottleSlot) {
+            inventory.setSelectedSlot(selected);
+        }
+    }
+
+    private static boolean needsExpRepair(ItemStack stack, int durabilityPercent) {
+        if (stack.isEmpty() || !stack.isDamageableItem() || stack.getMaxDamage() == 0
+            || stack.getEnchantments().keySet().stream().noneMatch(enchantment -> enchantment.is(Enchantments.MENDING))) {
+            return false;
+        }
+        return (stack.getMaxDamage() - stack.getDamageValue()) * 100.0 / stack.getMaxDamage() <= durabilityPercent;
+    }
+
+    private static int findAutoEatFood(LocalPlayer player) {
+        boolean needsFood = player.getFoodData().needsFood();
+        if (autoEatFood(player.getOffhandItem(), needsFood)) {
+            return Inventory.SLOT_OFFHAND;
+        }
+        Inventory inventory = player.getInventory();
+        int slot = findBestFood(inventory, 0, Inventory.SELECTION_SIZE, needsFood);
+        if (slot >= 0 || !CONFIG.autoEatSearchInventory) {
+            return slot;
+        }
+        return findBestFood(inventory, Inventory.SELECTION_SIZE, 36, needsFood);
+    }
+
+    private static int findBestFood(Inventory inventory, int start, int end, boolean needsFood) {
+        int bestSlot = -1;
+        float bestValue = -1;
+        for (int slot = start; slot < end; slot++) {
+            ItemStack stack = inventory.getItem(slot);
+            if (!autoEatFood(stack, needsFood)) {
+                continue;
+            }
+            var food = stack.get(DataComponents.FOOD);
+            float value = switch (CONFIG.autoEatPriority) {
+                case COMBINED -> food.nutrition() + food.saturation();
+                case HUNGER -> food.nutrition();
+                case SATURATION -> food.saturation();
+            };
+            if (value > bestValue) {
+                bestValue = value;
+                bestSlot = slot;
+            }
+        }
+        return bestSlot;
+    }
+
+    private static boolean autoEatFood(ItemStack stack, boolean needsFood) {
+        var food = stack.get(DataComponents.FOOD);
+        return stack.has(DataComponents.CONSUMABLE) && food != null
+            && !CONFIG.autoEatBlacklist.contains(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString())
+            && (needsFood || food.canAlwaysEat());
+    }
+
+    private static void stopAutoEat(Minecraft client) {
+        if (autoEatHand == null) {
+            return;
+        }
+        client.options.keyUse.setDown(false);
+        if (autoEatFoodSlot >= 0 && client.player == autoEatPlayer
+            && client.player.getInventory().getSelectedSlot() == autoEatFoodSlot) {
+            client.player.getInventory().setSelectedSlot(autoEatPreviousSlot);
+        }
+        autoEatHand = null;
+        autoEatPlayer = null;
+        autoEatFoodSlot = -1;
+        autoEatPreviousSlot = -1;
     }
 
     private static Vec3 movement(Minecraft client, float yaw, double speed, boolean vertical) {
@@ -251,21 +604,48 @@ public final class LobsterClient implements ClientModInitializer {
         return new Vec3(direction.x, up, direction.z);
     }
 
+    private enum CriticalPhase {
+        IDLE, WAIT, UP, DOWN, ATTACK, RESET
+    }
+
     public static void turnCamera(double yaw, double pitch) {
         cameraYaw += (float) yaw * 0.15F;
         cameraPitch = Mth.clamp(cameraPitch + (float) pitch * 0.15F, -90, 90);
     }
 
-    private static void renderHitboxes(LevelRenderContext context) {
+    private static void renderHighlights(LevelRenderContext context) {
         Minecraft client = Minecraft.getInstance();
-        if (!enabled(Module.HITBOX) || client.level == null) {
+        if (client.level == null || client.player == null
+            || (!enabled(Module.HITBOX) && !enabled(Module.STORAGE_ESP))) {
             return;
         }
         try (var gizmos = context.levelRenderer().collectPerFrameRenderThreadGizmos()) {
-            for (Entity entity : client.level.entitiesForRendering()) {
-                if (target(entity)) {
-                    Gizmos.cuboid(entity.getBoundingBox().inflate(entity.getPickRadius()),
-                        GizmoStyle.stroke(0xFFFFD68A)).setAlwaysOnTop();
+            if (enabled(Module.HITBOX)) {
+                for (Entity entity : client.level.entitiesForRendering()) {
+                    if (target(entity)) {
+                        Gizmos.cuboid(entity.getBoundingBox().inflate(entity.getPickRadius()),
+                            GizmoStyle.stroke(entity instanceof Player ? 0xFFFF4444 : 0xFFFFD68A)).setAlwaysOnTop();
+                    }
+                }
+            }
+            if (enabled(Module.STORAGE_ESP)) {
+                BlockPos center = client.player.blockPosition();
+                int centerX = center.getX() >> 4;
+                int centerZ = center.getZ() >> 4;
+                for (int x = centerX - 8; x <= centerX + 8; x++) {
+                    for (int z = centerZ - 8; z <= centerZ + 8; z++) {
+                        var chunk = client.level.getChunkSource().getChunk(x, z, ChunkStatus.FULL, false);
+                        if (chunk == null) {
+                            continue;
+                        }
+                        for (var storage : chunk.getBlockEntities().values()) {
+                            if (storage instanceof ChestBlockEntity || storage instanceof BarrelBlockEntity
+                                || storage instanceof ShulkerBoxBlockEntity || storage instanceof EnderChestBlockEntity) {
+                                Gizmos.cuboid(new AABB(storage.getBlockPos()),
+                                    GizmoStyle.stroke(0xFF55DDE0)).setAlwaysOnTop();
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -59,4 +59,51 @@ class ClientConfigTest {
             assertFalse(restored.enabled(module));
         }
     }
+
+    @Test
+    void savesAutoEatChoices() throws IOException {
+        Path file = directory.resolve("settings.properties");
+        ClientConfig original = new ClientConfig();
+        original.autoEatPriority = ClientConfig.FoodPriority.COMBINED;
+        original.autoEatThreshold = ClientConfig.EatThreshold.BOTH;
+        original.autoEatHunger = 12;
+        original.autoEatHealth = 7;
+        original.autoEatSearchInventory = true;
+        original.autoEatPauseAuras = false;
+        original.autoEatBlacklist.remove("minecraft:golden_apple");
+        original.save(file);
+
+        ClientConfig restored = new ClientConfig();
+        restored.load(file);
+        assertEquals(original.autoEatPriority, restored.autoEatPriority);
+        assertEquals(original.autoEatThreshold, restored.autoEatThreshold);
+        assertEquals(12, restored.autoEatHunger);
+        assertEquals(7, restored.autoEatHealth);
+        assertTrue(restored.autoEatSearchInventory);
+        assertFalse(restored.autoEatPauseAuras);
+        assertFalse(restored.autoEatBlacklist.contains("minecraft:golden_apple"));
+        assertTrue(restored.autoEatBlacklist.contains("minecraft:chorus_fruit"));
+    }
+
+    @Test
+    void savesAutoExpChoices() throws IOException {
+        Path file = directory.resolve("settings.properties");
+        ClientConfig original = new ClientConfig();
+        original.autoExpMode = ClientConfig.ExpMode.HANDS;
+        original.autoExpReplenish = false;
+        original.autoExpOnlyGround = true;
+        original.autoExpSlot = 3;
+        original.autoExpMinThreshold = 25;
+        original.autoExpMaxThreshold = 90;
+        original.save(file);
+
+        ClientConfig restored = new ClientConfig();
+        restored.load(file);
+        assertEquals(ClientConfig.ExpMode.HANDS, restored.autoExpMode);
+        assertFalse(restored.autoExpReplenish);
+        assertTrue(restored.autoExpOnlyGround);
+        assertEquals(3, restored.autoExpSlot);
+        assertEquals(25, restored.autoExpMinThreshold);
+        assertEquals(90, restored.autoExpMaxThreshold);
+    }
 }

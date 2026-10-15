@@ -11,10 +11,18 @@ import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(LocalPlayer.class)
 public abstract class LocalPlayerMixin {
+    @Inject(method = "sendPosition", at = @At("HEAD"), cancellable = true)
+    private void lobster$autoCritPosition(CallbackInfo ci) {
+        if (LobsterClient.sendCriticalPosition((LocalPlayer) (Object) this)) {
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "raycastHitResult", at = @At("RETURN"), cancellable = true)
     private void lobster$expandedWeaponTarget(float partialTick, Entity camera, CallbackInfoReturnable<HitResult> cir) {
         if (!LobsterClient.enabled(Module.HITBOX) || cir.getReturnValue() instanceof EntityHitResult) {
