@@ -92,6 +92,20 @@ class HardwareTests(unittest.TestCase):
         self.assertEqual(device.writes[1][11:15], (0x603D).to_bytes(4, "little"))
         self.assertEqual(joycon.calibration.center_x, 1951)
 
+    def test_neutral_keepalive_uses_rumble_only_report(self):
+        device = FakeDevice([])
+        joycon = JoyCon(SimpleNamespace(device=lambda: device), DeviceChoice("left", b"left", "L"))
+        joycon.send_neutral_rumble()
+        self.assertEqual(device.writes[0][0], 0x10)
+        self.assertEqual(device.writes[0][2:10], bytes.fromhex("00 01 40 40 00 01 40 40"))
+        self.assertEqual(len(device.writes[0]), 64)
+
+    def test_request_full_reports_uses_mode_subcommand(self):
+        device = FakeDevice([])
+        joycon = JoyCon(SimpleNamespace(device=lambda: device), DeviceChoice("left", b"left", "L"))
+        joycon.request_full_reports()
+        self.assertEqual(device.writes[0][10:12], b"\x03\x30")
+
 
 class FakePad:
     def __init__(self):

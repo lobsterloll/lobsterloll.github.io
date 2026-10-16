@@ -47,7 +47,7 @@ Capture, SL, and SR are unused. The Joy-Cons' ZL/ZR triggers are digital, so For
 
 - Run `.\run.ps1 --list`. Both sides should appear. If one does not, wake it, check Windows Bluetooth pairing, and retry. Switch 2 Joy-Con 2 controllers have a different protocol and are not supported.
 - In `joy.cpl`, move each stick and press each button. If both Joy-Cons work there but the browser does not see them, reload the cloud page or restart the browser after starting the bridge. Close other controller remappers if they create duplicate virtual pads.
-- The app stops and releases all inputs if either Joy-Con stops reporting for half a second. Reconnect both and rerun it. If factory stick calibration cannot be read, the app uses an approximate range; check for drift in `joy.cpl`.
+- If either Joy-Con stops reporting for half a second, the app releases all inputs and waits for both to report again. It sends a neutral keepalive every five seconds and retries a stalled Bluetooth HID connection. If Windows no longer shows a Joy-Con, wake or re-pair it. If factory stick calibration cannot be read, the app uses an approximate range; check for drift in `joy.cpl`.
 - If the virtual controller cannot be created, confirm the official ViGEmBus installation in Windows **Installed apps**, then rerun `setup.ps1` and restart the app.
 - You can run the packet/mapping tests without Joy-Cons or the driver: `.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
 

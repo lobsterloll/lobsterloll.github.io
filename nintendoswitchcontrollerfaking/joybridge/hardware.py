@@ -30,6 +30,8 @@ def discover(hid_module) -> dict[str, list[DeviceChoice]]:
 class JoyCon:
     def __init__(self, hid_module, choice: DeviceChoice):
         self.side = choice.side
+        self.hid_module = hid_module
+        self.path = choice.path
         self.device = hid_module.device()
         self.device.open_path(choice.path)
         self.packet_number = 0
@@ -37,6 +39,25 @@ class JoyCon:
 
     def close(self):
         self.device.close()
+
+    def reconnect(self) -> str:
+        try:
+            self.device.close()
+        except OSError:
+            pass
+        self.device = self.hid_module.device()
+        self.device.open_path(self.path)
+        self.packet_number = 0
+        return self.initialize()
+
+    def send_neutral_rumble(self) -> None:
+        report = bytearray(64)
+        report[0] = 0x10
+        report[1] = self.packet_number
+        self.packet_number = (self.packet_number + 1) & 0x0F
+        report[2:10] = NEUTRAL_RUMBLE
+        if self.device.write(bytes(report)) <= 0:
+            raise OSError("Joy-Con keepalive failed")
 
     def send_subcommand(self, command: int, data: bytes = b"") -> None:
         if len(data) > 53:
@@ -72,7 +93,7 @@ class JoyCon:
         return reply[20:20 + length]
 
     def initialize(self) -> str:
-        self.send_subcommand(0x03, b"\x30")  # Standard full reports at 60 Hz.
+        self.request_full_reports()
         self.await_reply(0x03)
         address = 0x603D if self.side == "left" else 0x6046
         try:
@@ -80,6 +101,9 @@ class JoyCon:
             return "factory stick calibration loaded"
         except (TimeoutError, OSError, ValueError):
             return "factory calibration unavailable; using approximate stick range"
+
+    def request_full_reports(self) -> None:
+        self.send_subcommand(0x03, b"\x30")
 
     def read_state(self):
         packet = bytes(self.device.read(64, 100))

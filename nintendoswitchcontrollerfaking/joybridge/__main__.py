@@ -22,12 +22,36 @@ class Reader(threading.Thread):
 
     def run(self):
         try:
+            next_keepalive = time.monotonic() + 5.0
+            next_reconnect = time.monotonic() + 3.0
             while not self.stop.is_set():
-                state = self.joycon.read_state()
+                try:
+                    state = self.joycon.read_state()
+                except OSError:
+                    state = None
+                    self.stop.wait(0.1)
+                now = time.monotonic()
                 if state is not None:
                     with self.lock:
                         self.state = state
-                        self.last_report = time.monotonic()
+                        self.last_report = now
+                if now >= next_keepalive:
+                    try:
+                        self.joycon.send_neutral_rumble()
+                    except OSError:
+                        pass
+                    next_keepalive = now + 5.0
+                if self.last_report and now - self.last_report > 3.0 and now >= next_reconnect:
+                    try:
+                        if now - self.last_report < 8.0:
+                            self.joycon.request_full_reports()
+                            print(f"Requesting full reports from {self.joycon.side} Joy-Con.")
+                        else:
+                            self.joycon.reconnect()
+                            print(f"{self.joycon.side} Joy-Con connection refreshed.")
+                    except (OSError, TimeoutError):
+                        print(f"Waiting for {self.joycon.side} Joy-Con to reconnect.")
+                    next_reconnect = time.monotonic() + 5.0
         except Exception as exc:
             with self.lock:
                 self.error = exc
@@ -89,6 +113,7 @@ def run(args) -> int:
         print("One virtual Xbox controller is active. Test it in joy.cpl, then open Xbox Cloud Gaming.")
         print("Press Ctrl+C here to disconnect it.")
         deadline = time.monotonic() + 2.0
+        input_paused = False
         while not stop.is_set():
             left, left_at, left_error = readers[0].snapshot()
             right, right_at, right_error = readers[1].snapshot()
@@ -100,8 +125,14 @@ def run(args) -> int:
                     raise TimeoutError("Both Joy-Cons must send full input reports. Try reconnecting them.")
                 output = XboxState()
             elif now - left_at > 0.5 or now - right_at > 0.5:
-                raise TimeoutError("A Joy-Con stopped reporting; virtual controller was released.")
+                if not input_paused:
+                    print("Joy-Con input paused; releasing controls until both report again.")
+                input_paused = True
+                output = XboxState()
             else:
+                if input_paused:
+                    print("Joy-Con input resumed.")
+                input_paused = False
                 output = combine(left, right)
             send_state(pad, vg, output)
             time.sleep(1 / 60)
