@@ -1,0 +1,8 @@
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+/.venv/
+/__pycache__/
+/v2/__pycache__/
+/v2/data/
+/v2/model.npz
+/v2/steering_q.npz
