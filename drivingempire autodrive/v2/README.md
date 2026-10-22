@@ -29,25 +29,31 @@ At zero speed, it keeps trying driving actions for 20 seconds, with extra explor
 
 The preview draws green points where it sees the road and says **NO ROAD DETECTED** when it finds none. It shows the current uninterrupted stretch of detected road driving and the best stretch saved in the policy. That is a useful progress signal, while the step count only counts updates. The detector uses road color and surface texture as well as lane markings, so it can score roads without painted center lines, but it can still mistake sidewalks or unusual pavement for a road. It does not label cars or buildings as separate object classes; a missing road ahead is an obstacle cue, not proof of what the obstacle is. The agent does not yet recognize a destination or prove it completed a fixed route. To judge improvement, start from a comparable place and watch whether road-driving stretches increase and recoveries decrease. A single best stretch can also improve by luck, so repeat the test. Keep **F9** ready.
 
+### Evaluate a saved checkpoint
+
+Run `py -3 v2/autodrive.py evaluate_auto` for the road-goal model or `py -3 v2/autodrive.py evaluate_free` for the game explorer. Focus Roblox and press **F8** to start. These modes load the matching saved model, choose its highest-valued actions without random exploration, and do not update or save its weights. Start each comparison from the same road and camera view, and stop after a similar amount of time.
+
+Each run writes `steps.csv`, a `frames/` folder, and `summary.json` under `v2/data/evaluations/<timestamp>/`. The CSV pairs each chosen action with its outcome frame, movement estimate, road alignment, and current reward. The summary reports time spent moving with a detected aligned road, time moving without one, stopped time, lost-car events, and recovery attempts. These are **screen-derived estimates**, not verified distance or collision measurements. Inspect the frames to check whether the car really advanced along the route; compare several runs before deciding that a checkpoint improved. Once those estimates agree with what the frames show, they can guide a better training reward.
+
 ## Game exploration experiment
 
 Run `./.venv/Scripts/python.exe v2/autodrive.py self_train_free`. This mode starts a separate model at `v2/game_explorer_agent.npz`. It sees a reduced image of the whole Roblox window and tries 72 actions: the driving combinations, individual letter and number keys except L, Space, Shift and arrows, left and right clicks at positions across the game view, and wheel scrolling up and down. Random exploration samples all 72 actions evenly and remains at least 25% of choices, so mouse and keyboard actions continue to get tried as it learns. It still rewards detected road driving and also gives a small one-time reward for a new-looking screenshot, so it can explore menus and camera changes. W stays held when it chooses acceleration on consecutive steps; there is no programmed speed cap.
 
-All mouse positions stay inside the Roblox game view and above its bottom quarter. The action list excludes Esc, L (the Roblox Leave shortcut), Alt, Windows keys, F8, F9, the Roblox menu area, and chat controls. It cannot issue Alt+F4 or click the window's Close button. Pressing physical Esc, F9, or a driving key pauses the assistant. Trying many inputs is not the same as understanding the game: this model has no labeled car or building detector, and novelty can reward a menu change that does not help driving. Its best road streak remains the useful driving measure. Supervise exploratory runs.
+All mouse positions stay inside the Roblox game view and above its bottom quarter. The action list excludes Esc, L (the Roblox Leave shortcut), Alt, Windows keys, F8, F9, the Roblox menu area, and chat controls. It cannot issue Alt+F4 or click the window's Close button. Pressing physical Esc or a driving key pauses the assistant; close the preview window to quit. Trying many inputs is not the same as understanding the game: this model has no labeled car or building detector, and novelty can reward a menu change that does not help driving. Its best road streak remains the useful driving measure. Supervise exploratory runs.
 
 ## Controls
 
 - **F8:** start or pause learned driving.
-- **F9:** release assistant keys and pause; in recording mode, finish and save the session.
+- **F9:** release assistant keys and pause in `drive`, `self_train`, `self_train_auto`, and `evaluate_auto`; in `record`, finish and save. Ignored in `self_train_free` and `evaluate_free`.
 - **Physical W/A/S/D/Space during learned driving:** take control and pause.
-- **Q in the preview:** quit learned driving.
+- **Q in the preview:** quit `drive`, `self_train`, `self_train_auto`, or `evaluate_auto`. In `self_train_free` and `evaluate_free`, close the preview window to quit.
 
 If the preview says **MANUAL TAKEOVER**, the agent is paused because you pressed a driving key. It will not attempt recovery while paused. Press **F8** when you want it to resume from the current game view.
 
-The game must stay focused while driving or recording. The assistant releases its keys when focus is lost. In `self_train_auto`, it waits for Roblox to regain focus and then continues without another F8 press. The older `drive` and `self_train` modes still pause when road tracking is lost. F9 releases assistant input but does not brake a coasting car. Settings and keybindings come from the parent `settings.json`.
+The game must stay focused while driving or recording. The assistant releases its keys when focus is lost. In `self_train_auto`, it waits for Roblox to regain focus and then continues without another F8 press. The older `drive` and `self_train` modes still pause when road tracking is lost. In modes where F9 is enabled, it releases assistant input but does not brake a coasting car. Settings and keybindings come from the parent `settings.json`.
 
 ## What this version can learn
 
 The manual-example mode is imitation learning: it finds similar road views from your recordings and copies the steering choice you made there. More varied, correctly driven examples can improve it after retraining. It can also make mistakes on unfamiliar views; low similarity or uncertain votes pause the driver. This mode and `self_train` still use Version 1's road check, so intersections and some unusual roads will pause them.
 
-The visual AI can update its own network from its actions, but hours alone cannot make it a complete driver. Its road score is a screenshot-based estimate, not a collision detector or a map. It does not learn routes or cinematic camera control. Supervise every test, and use F9 whenever the behavior is wrong.
+The visual AI can update its own network from its actions, but hours alone cannot make it a complete driver. Its road score is a screenshot-based estimate, not a collision detector or a map. It does not learn routes or cinematic camera control. Supervise every test, and use a physical driving key to pause whenever the behavior is wrong.

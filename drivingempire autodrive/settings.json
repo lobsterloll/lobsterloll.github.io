@@ -10,9 +10,9 @@
     "stop": "F9"
   },
   "road_sample_lab": [
-    170,
-    133,
-    133
+    9,
+    128,
+    128
   ],
   "color_tolerance": 35,
   "car_x_fraction": 0.48,

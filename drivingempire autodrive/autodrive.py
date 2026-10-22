@@ -187,8 +187,9 @@ class KeyOutput:
 
 
 class PhysicalKeys:
-    def __init__(self, codes):
+    def __init__(self, codes, stop_enabled=True):
         self.codes = codes
+        self.stop_enabled = stop_enabled
         self.toggle = threading.Event()
         self.stop = threading.Event()
         self.takeover = threading.Event()
@@ -223,7 +224,7 @@ class PhysicalKeys:
                         physical_down.discard(event.vkCode)
                     elif event.vkCode not in physical_down:
                         physical_down.add(event.vkCode)
-                        if event.vkCode == self.codes["stop"]:
+                        if self.stop_enabled and event.vkCode == self.codes["stop"]:
                             self.stop.set()
                         elif event.vkCode == self.codes["toggle"]:
                             self.toggle.set()
