@@ -175,7 +175,9 @@ def screen_road(frame, settings):
         raw_runs = list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
         runs = []
         for left, right in raw_runs:
-            if runs and left - runs[-1][1] <= 0.09 * width:
+            gap = left - runs[-1][1] if runs else None
+            car_occlusion = bool(runs) and runs[-1][1] < anchor < left and gap <= 0.20 * width
+            if runs and (gap <= 0.09 * width or car_occlusion):
                 runs[-1] = (runs[-1][0], right)
             else:
                 runs.append((left, right))
@@ -209,11 +211,16 @@ def scene_moving(previous, frame):
     return float(np.mean(np.abs(after.astype(np.int16) - before.astype(np.int16)))) > 5.0
 
 
-def speed_moving(frame):
+def speed_hud_visible(frame):
     height, width = frame.shape[:2]
     hud = cv2.cvtColor(frame[int(height * 0.94):, int(width * 0.72):], cv2.COLOR_BGR2HSV)
     blue_bar = cv2.inRange(hud, (80, 100, 100), (110, 255, 255))
-    if cv2.countNonZero(blue_bar) < 50:
+    return cv2.countNonZero(blue_bar) >= 50
+
+
+def speed_moving(frame):
+    height, width = frame.shape[:2]
+    if not speed_hud_visible(frame):
         return None
     left, right = int(width * 0.78), int(width * 0.94)
     top, bottom = int(height * 0.76), int(height * 0.96)
@@ -698,6 +705,9 @@ def ai_drive(free_exploration=False, evaluation=False):
     evaluation_dir = None
     evaluation_file = None
     evaluation_writer = None
+    action_file = None
+    action_writer = None
+    evaluation_actions = 0
     evaluation_steps = 0
     road_seconds = 0.0
     unaligned_seconds = 0.0
@@ -721,7 +731,7 @@ def ai_drive(free_exploration=False, evaluation=False):
         image_height = round(current_frame.shape[0] * image_width / current_frame.shape[1])
         image = cv2.resize(current_frame, (image_width, image_height), interpolation=cv2.INTER_AREA)
         cv2.imwrite(str(evaluation_dir / "frames" / image_name), image, [cv2.IMWRITE_JPEG_QUALITY, 65])
-        evaluation_writer.writerow((round(time.time(), 3), image_name, repr(actions[action]), moving,
+        evaluation_writer.writerow((last_action_id, round(time.time(), 3), image_name, repr(actions[action]), moving,
                                     alignment, reward, stuck, round(duration, 3)))
         evaluation_file.flush()
 
@@ -731,7 +741,10 @@ def ai_drive(free_exploration=False, evaluation=False):
             (evaluation_dir / "frames").mkdir(parents=True)
             evaluation_file = (evaluation_dir / "steps.csv").open("w", newline="", encoding="utf-8")
             evaluation_writer = csv.writer(evaluation_file)
-            evaluation_writer.writerow(("time", "frame", "action", "moving", "road_alignment", "reward_proxy", "stuck", "seconds"))
+            evaluation_writer.writerow(("action_id", "time", "frame", "action", "moving", "road_alignment", "reward_proxy", "stuck", "seconds"))
+            action_file = (evaluation_dir / "actions.csv").open("w", newline="", encoding="utf-8")
+            action_writer = csv.writer(action_file)
+            action_writer.writerow(("action_id", "time", "action", "selection", "speed_hud_visible", "speed_hud_moving"))
         with mss.MSS() as capture:
             area = v1.client_capture_area(hwnd) if hwnd else None
             frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -847,7 +860,8 @@ def ai_drive(free_exploration=False, evaluation=False):
                         motion_at = now
                     if road is not None:
                         last_road_at = now
-                    hud_motion = None if menu_open else speed_moving(frame)
+                    hud_visible = not menu_open and speed_hud_visible(frame)
+                    hud_motion = speed_moving(frame) if hud_visible else None
                     moving = hud_motion
                     if moving is None and (free_exploration or (last_road_at is not None and now - last_road_at < 3.0)):
                         moving = scene_motion
@@ -915,11 +929,15 @@ def ai_drive(free_exploration=False, evaluation=False):
                         if last_state is not None and (now - action_since >= (0.60 if not moving else 0.25) or stuck):
                             visual_change = float(np.mean(np.abs(state[:-1] - last_state[:-1])))
                             alignment = road_state(road, frame.shape[1], settings["car_x_fraction"])[1] if road is not None else None
-                            if moving and alignment is not None and alignment <= 0.25:
+                            if free_exploration:
+                                driving_motion = hud_motion if hud_motion is not None else (scene_motion if hud_visible else None)
+                            else:
+                                driving_motion = moving
+                            if driving_motion and alignment is not None and alignment <= 0.25:
                                 reward = 0.20 + 0.40 * (1 - alignment / 0.25) + min(0.10, 2 * visual_change)
                             else:
-                                reward = -0.25 if moving else -0.20
-                            if free_exploration:
+                                reward = -0.25 if driving_motion else -0.20
+                            if free_exploration and not hud_visible:
                                 small_view = cv2.resize(frame, (16, 9), interpolation=cv2.INTER_AREA)
                                 signature = hash((small_view // 32).tobytes())
                                 if signature not in seen_views:
@@ -927,7 +945,7 @@ def ai_drive(free_exploration=False, evaluation=False):
                                     if len(seen_views) > 200000:
                                         seen_views.pop()
                                     reward += 0.30
-                            if moving and alignment is not None and alignment <= 0.25:
+                            if driving_motion and alignment is not None and alignment <= 0.25:
                                 onroad_streak += now - action_since
                                 best_streak = max(best_streak, onroad_streak)
                             else:
@@ -974,10 +992,17 @@ def ai_drive(free_exploration=False, evaluation=False):
                                 epsilon = max(epsilon, 0.25)
                             if not moving and not evaluation:
                                 epsilon = max(epsilon, 0.65)
-                            if rng.random() < epsilon:
-                                action = rng.randrange(len(actions))
+                            in_car = free_exploration and hud_visible
+                            if in_car and hud_motion is False:
+                                action = 0
+                                selection = "start_car"
+                            elif rng.random() < epsilon:
+                                action = rng.randrange(3 if in_car else len(actions))
+                                selection = "explore"
                             else:
-                                action = int(np.argmax(visual_values(state, weights)))
+                                values = visual_values(state, weights)
+                                action = int(np.argmax(values[:3] if in_car else values))
+                                selection = "greedy"
                             if action < len(AI_ACTIONS):
                                 output.set_pressed({codes[name] for name in AI_ACTIONS[action]})
                                 names = "+".join(AI_ACTIONS[action]).upper()
@@ -999,6 +1024,11 @@ def ai_drive(free_exploration=False, evaluation=False):
                             last_state = state
                             last_action = action
                             action_since = now
+                            if evaluation:
+                                evaluation_actions += 1
+                                last_action_id = evaluation_actions
+                                action_writer.writerow((last_action_id, round(time.time(), 3), repr(actions[action]), selection, hud_visible, hud_motion))
+                                action_file.flush()
                             label = ("GAME EVALUATION" if evaluation else "GAME EXPLORER") if free_exploration else ("ROAD EVALUATION" if evaluation else "ROAD GOAL")
                             count = evaluation_steps if evaluation else steps
                             status = f"{label} - {count} steps | road {onroad_streak:.0f}s | best {best_streak:.0f}s | {names}"
@@ -1028,12 +1058,15 @@ def ai_drive(free_exploration=False, evaluation=False):
         keys.close()
         cv2.destroyAllWindows()
         if evaluation:
+            if action_file is not None:
+                action_file.close()
             if evaluation_file is not None:
                 evaluation_file.close()
                 summary = {
                     "checkpoint": str(policy_path),
                     "checkpoint_sha256": checkpoint_hash,
                     "steps": evaluation_steps,
+                    "actions": evaluation_actions,
                     "detected_road_moving_seconds": round(road_seconds, 2),
                     "moving_without_aligned_road_seconds": round(unaligned_seconds, 2),
                     "stopped_seconds": round(stopped_seconds, 2),
