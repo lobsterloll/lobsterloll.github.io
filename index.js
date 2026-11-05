@@ -1,3 +1,22 @@
+// Change the address without reloading the page or filling browser history.
+(() => {
+  if (!['http:', 'https:'].includes(window.location.protocol)) return;
+  if (!/^\/(?:index\.html|[a-z]{20,64})?$/.test(window.location.pathname)) return;
+
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  function changePath() {
+    const bytes = window.crypto.getRandomValues(new Uint8Array(24));
+    const path = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
+    window.history.replaceState(window.history.state, '',
+      `/${path}${window.location.search}${window.location.hash}`);
+  }
+
+  changePath();
+  window.setInterval(() => {
+    if (!document.hidden) changePath();
+  }, 10000);
+})();
+
  const pageLoader = document.querySelector(".page-loader");
     const lobster = pageLoader.querySelector(".page-loader__lobster");
     let pageLoaded = document.readyState === "complete";
