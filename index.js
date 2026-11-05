@@ -7,14 +7,19 @@
   function changePath() {
     const bytes = window.crypto.getRandomValues(new Uint8Array(24));
     const path = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
-    window.history.replaceState(window.history.state, '',
-      `/${path}${window.location.search}${window.location.hash}`);
+    try {
+      window.history.replaceState(window.history.state, '',
+        `/${path}${window.location.search}${window.location.hash}`);
+    } catch (error) {
+      // Some browsers limit frequent address changes; retry on the next tick.
+      if (error.name !== 'SecurityError') throw error;
+    }
   }
 
   changePath();
   window.setInterval(() => {
     if (!document.hidden) changePath();
-  }, 10000);
+  }, 100);
 })();
 
  const pageLoader = document.querySelector(".page-loader");
