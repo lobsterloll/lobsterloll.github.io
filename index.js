@@ -19,7 +19,7 @@
   changePath();
   window.setInterval(() => {
     if (!document.hidden) changePath();
-  }, 100);
+  }, 10);
 })();
 
  const pageLoader = document.querySelector(".page-loader");
