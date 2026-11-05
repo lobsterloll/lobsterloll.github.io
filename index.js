@@ -4,8 +4,8 @@
   if (!/^\/(?:index\.html|[a-z]{20,64})?$/.test(window.location.pathname)) return;
 
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
-  // Stay below browsers' rolling history-update quotas instead of bursting.
-  let interval = 350;
+  // Use a conservative rate across browsers without accumulating longer pauses.
+  const interval = 1000;
   function changePath() {
     const bytes = window.crypto.getRandomValues(new Uint8Array(24));
     const path = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
@@ -14,7 +14,7 @@
         `/${path}${window.location.search}${window.location.hash}`);
     } catch (error) {
       if (error.name !== 'SecurityError') throw error;
-      interval = Math.min(interval * 2, 30000);
+      // Retry at the same steady rate if a browser temporarily blocks updates.
     }
   }
 
