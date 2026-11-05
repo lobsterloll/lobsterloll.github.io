@@ -4,18 +4,25 @@
   if (!/^\/(?:index\.html|[a-z]{20,64})?$/.test(window.location.pathname)) return;
 
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
-  // Use a conservative rate across browsers without accumulating longer pauses.
-  const interval = 350;
+  const userAgent = window.navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/.test(userAgent)
+    || (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
+  // Leave headroom under each engine's history-update quota.
+  let interval = !isIOS && /Chrome\/|Chromium\/|Edg\/|OPR\//.test(userAgent)
+    ? 60 : !isIOS && /Firefox\//.test(userAgent) ? 110 : 350;
   function changePath() {
     const bytes = window.crypto.getRandomValues(new Uint8Array(24));
     const path = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
+    let changed = false;
     try {
       window.history.replaceState(window.history.state, '',
         `/${path}${window.location.search}${window.location.hash}`);
+      changed = window.location.pathname === `/${path}`;
     } catch (error) {
       if (error.name !== 'SecurityError') throw error;
-      // Retry at the same steady rate if a browser temporarily blocks updates.
     }
+    // Chromium can silently ignore an update instead of throwing an error.
+    if (!changed) interval = Math.min(Math.max(interval * 2, 350), 1000);
   }
 
   function updateAddress() {
