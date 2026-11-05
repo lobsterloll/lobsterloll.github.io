@@ -5,7 +5,7 @@
 
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
   // Use a conservative rate across browsers without accumulating longer pauses.
-  const interval = 1000;
+  const interval = 350;
   function changePath() {
     const bytes = window.crypto.getRandomValues(new Uint8Array(24));
     const path = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
