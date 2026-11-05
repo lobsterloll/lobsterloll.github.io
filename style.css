@@ -6,7 +6,7 @@
       display: grid;
       place-items: center;
       overflow: hidden;
-      background: #000;
+      background: #fff;
       transition: background-color 1s ease, visibility 0s linear 1s;
     }
     .page-loader__lobster {
