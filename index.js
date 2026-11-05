@@ -4,8 +4,9 @@
   if (!/^\/(?:index\.html|[a-z]{20,64})?$/.test(window.location.pathname)) return;
 
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
-  let retryAfter = 0;
-  function changePath(now) {
+  // Stay below browsers' rolling history-update quotas instead of bursting.
+  let interval = 350;
+  function changePath() {
     const bytes = window.crypto.getRandomValues(new Uint8Array(24));
     const path = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
     try {
@@ -13,17 +14,16 @@
         `/${path}${window.location.search}${window.location.hash}`);
     } catch (error) {
       if (error.name !== 'SecurityError') throw error;
-      // Give the browser time to recover when its history-update limit is hit.
-      retryAfter = now + 1000;
+      interval = Math.min(interval * 2, 30000);
     }
   }
 
-  function updateAddress(now) {
-    if (!document.hidden && now >= retryAfter) changePath(now);
-    window.requestAnimationFrame(updateAddress);
+  function updateAddress() {
+    if (!document.hidden) changePath();
+    window.setTimeout(updateAddress, interval);
   }
 
-  window.requestAnimationFrame(updateAddress);
+  updateAddress();
 })();
 
  const pageLoader = document.querySelector(".page-loader");
