@@ -57,3 +57,42 @@
     }, { once: true });
 
     revealPageWhenReady();
+
+
+// Filtering enhances the complete download list; all projects work without JS.
+(() => {
+  const tools = document.querySelector('.catalog-tools');
+  const search = document.querySelector('#project-search');
+  const projects = Array.from(document.querySelectorAll('.project'));
+  const buttons = Array.from(document.querySelectorAll('[data-filter]'));
+  const count = document.querySelector('#result-count');
+  const empty = document.querySelector('.empty-state');
+  let category = 'all';
+
+  function filterProjects() {
+    const query = search.value.trim().toLowerCase();
+    let visible = 0;
+    for (const project of projects) {
+      const matchesCategory = category === 'all' || project.dataset.category === category;
+      project.hidden = !matchesCategory || !project.textContent.toLowerCase().includes(query);
+      if (!project.hidden) visible++;
+    }
+    count.textContent = `${visible} ${visible === 1 ? 'project' : 'projects'} to explore`;
+    empty.hidden = visible !== 0;
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.filter === category));
+  }
+
+  if (!tools || !search) return;
+  tools.hidden = false;
+  search.addEventListener('input', filterProjects);
+  for (const button of buttons) button.addEventListener('click', () => {
+    category = button.dataset.filter;
+    filterProjects();
+  });
+  document.querySelector('#reset-search').addEventListener('click', () => {
+    category = 'all';
+    search.value = '';
+    filterProjects();
+    search.focus();
+  });
+})();
