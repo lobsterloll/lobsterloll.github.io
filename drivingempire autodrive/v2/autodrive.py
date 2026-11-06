@@ -1,14 +1,13 @@
 """Experimental learned driver built on the Version 1 safety controls."""
 
 import argparse
-import csv
 from datetime import datetime
-import hashlib
 import json
 from pathlib import Path
 import random
 import sys
 import time
+import uuid
 
 import cv2
 import mss
@@ -24,6 +23,8 @@ MODEL = ROOT / "model.npz"
 STEERING_POLICY = ROOT / "steering_q.npz"
 VISUAL_POLICY = ROOT / "road_goal_agent.npz"
 FREE_POLICY = ROOT / "game_explorer_agent.npz"
+DRIVER_STATUS = ROOT / "driver_status.json"
+DRIVER_MESSAGE = ROOT / "driver_message.json"
 SPEED_ZERO = cv2.imread(str(ROOT / "speed-zero.png"), cv2.IMREAD_GRAYSCALE)
 HOG = cv2.HOGDescriptor((64, 32), (16, 16), (8, 8), (8, 8), 9)
 AI_ACTIONS = (
@@ -175,9 +176,7 @@ def screen_road(frame, settings):
         raw_runs = list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
         runs = []
         for left, right in raw_runs:
-            gap = left - runs[-1][1] if runs else None
-            car_occlusion = bool(runs) and runs[-1][1] < anchor < left and gap <= 0.20 * width
-            if runs and (gap <= 0.09 * width or car_occlusion):
+            if runs and left - runs[-1][1] <= 0.09 * width:
                 runs[-1] = (runs[-1][0], right)
             else:
                 runs.append((left, right))
@@ -211,16 +210,11 @@ def scene_moving(previous, frame):
     return float(np.mean(np.abs(after.astype(np.int16) - before.astype(np.int16)))) > 5.0
 
 
-def speed_hud_visible(frame):
+def speed_moving(frame):
     height, width = frame.shape[:2]
     hud = cv2.cvtColor(frame[int(height * 0.94):, int(width * 0.72):], cv2.COLOR_BGR2HSV)
     blue_bar = cv2.inRange(hud, (80, 100, 100), (110, 255, 255))
-    return cv2.countNonZero(blue_bar) >= 50
-
-
-def speed_moving(frame):
-    height, width = frame.shape[:2]
-    if not speed_hud_visible(frame):
+    if cv2.countNonZero(blue_bar) < 50:
         return None
     left, right = int(width * 0.78), int(width * 0.94)
     top, bottom = int(height * 0.76), int(height * 0.96)
@@ -488,6 +482,12 @@ def save_visual(weights, steps, best_streak, path=VISUAL_POLICY):
     temporary.replace(path)
 
 
+def save_driver_status(snapshot):
+    temporary = DRIVER_STATUS.with_suffix(".tmp")
+    temporary.write_text(json.dumps(snapshot), encoding="utf-8")
+    temporary.replace(DRIVER_STATUS)
+
+
 def drive(self_training=False):
     try:
         v1.user32.SetProcessDPIAware()
@@ -646,7 +646,7 @@ def drive(self_training=False):
             save_policy(q, visits)
 
 
-def ai_drive(free_exploration=False, evaluation=False):
+def ai_drive(free_exploration=False):
     try:
         v1.user32.SetProcessDPIAware()
     except AttributeError:
@@ -655,8 +655,6 @@ def ai_drive(free_exploration=False, evaluation=False):
     initializer = np.random.default_rng()
     actions = FREE_ACTIONS if free_exploration else AI_ACTIONS
     policy_path = FREE_POLICY if free_exploration else VISUAL_POLICY
-    if evaluation and not policy_path.exists():
-        raise RuntimeError("Train this mode before evaluating its checkpoint.")
     input_size = 9217 if free_exploration else 3601
     weights = [
         (initializer.standard_normal((input_size, 64)) * np.sqrt(2 / input_size)).astype(np.float32),
@@ -674,7 +672,6 @@ def ai_drive(free_exploration=False, evaluation=False):
         expected = ((input_size, 64), (64,), (64, len(actions)), (len(actions),))
         if any(weight.shape != shape for weight, shape in zip(weights, expected)):
             raise RuntimeError("The saved visual policy has an invalid shape.")
-    checkpoint_hash = hashlib.sha256(policy_path.read_bytes()).hexdigest() if evaluation else None
     target_weights = [weight.copy() for weight in weights]
     replay = []
     replay_slot = 0
@@ -682,7 +679,7 @@ def ai_drive(free_exploration=False, evaluation=False):
 
     settings, codes = v1.load_settings()
     hwnd = v1.find_game_window(settings["window_title"])
-    keys = v1.PhysicalKeys(codes, stop_enabled=not free_exploration)
+    keys = v1.PhysicalKeys(codes)
     output = v1.KeyOutput()
     keys.start()
     active = False
@@ -702,49 +699,35 @@ def ai_drive(free_exploration=False, evaluation=False):
     scene_motion = False
     last_road_at = None
     offroad_since = None
-    evaluation_dir = None
-    evaluation_file = None
-    evaluation_writer = None
-    action_file = None
-    action_writer = None
-    evaluation_actions = 0
-    evaluation_steps = 0
-    road_seconds = 0.0
-    unaligned_seconds = 0.0
-    stopped_seconds = 0.0
-    lost_events = 0
-    recovery_attempts = 0
+    last_status_write = 0.0
+    session_id = uuid.uuid4().hex
+    last_message_id = None
+    last_message_result = ""
+    last_message_check = 0.0
 
-    def record_evaluation(action, current_frame, moving, alignment, reward, stuck, duration):
-        nonlocal evaluation_steps, road_seconds, unaligned_seconds, stopped_seconds, lost_events
-        evaluation_steps += 1
-        if moving and alignment is not None and alignment <= 0.25:
-            road_seconds += duration
-        elif moving:
-            unaligned_seconds += duration
-        elif moving is False:
-            stopped_seconds += duration
-        else:
-            lost_events += 1
-        image_name = f"{evaluation_steps:06d}.jpg"
-        image_width = 640
-        image_height = round(current_frame.shape[0] * image_width / current_frame.shape[1])
-        image = cv2.resize(current_frame, (image_width, image_height), interpolation=cv2.INTER_AREA)
-        cv2.imwrite(str(evaluation_dir / "frames" / image_name), image, [cv2.IMWRITE_JPEG_QUALITY, 65])
-        evaluation_writer.writerow((last_action_id, round(time.time(), 3), image_name, repr(actions[action]), moving,
-                                    alignment, reward, stuck, round(duration, 3)))
-        evaluation_file.flush()
+    def publish_status(focused, road_detected, motion_signal, issue):
+        snapshot = {
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "session_id": session_id,
+            "mode": "self_train_free" if free_exploration else "self_train_auto",
+            "active": active,
+            "roblox_focused": focused,
+            "road_detected": road_detected,
+            "motion_signal": motion_signal,
+            "issue": issue,
+            "status": status,
+            "steps": steps,
+            "current_road_streak_seconds": round(onroad_streak, 1),
+            "best_road_streak_seconds": round(best_streak, 1),
+            "last_message_id": last_message_id,
+            "last_message_result": last_message_result,
+        }
+        try:
+            save_driver_status(snapshot)
+        except OSError:
+            pass
 
     try:
-        if evaluation:
-            evaluation_dir = DATA / "evaluations" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-            (evaluation_dir / "frames").mkdir(parents=True)
-            evaluation_file = (evaluation_dir / "steps.csv").open("w", newline="", encoding="utf-8")
-            evaluation_writer = csv.writer(evaluation_file)
-            evaluation_writer.writerow(("action_id", "time", "frame", "action", "moving", "road_alignment", "reward_proxy", "stuck", "seconds"))
-            action_file = (evaluation_dir / "actions.csv").open("w", newline="", encoding="utf-8")
-            action_writer = csv.writer(action_file)
-            action_writer.writerow(("action_id", "time", "action", "selection", "speed_hud_visible", "speed_hud_moving"))
         with mss.MSS() as capture:
             area = v1.client_capture_area(hwnd) if hwnd else None
             frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -755,6 +738,7 @@ def ai_drive(free_exploration=False, evaluation=False):
                     pass
             cv2.namedWindow("Driving Empire visual AI", cv2.WINDOW_AUTOSIZE)
             while True:
+                emergency_stop = False
                 if keys.stop.is_set():
                     keys.stop.clear()
                     keys.toggle.clear()
@@ -763,9 +747,9 @@ def ai_drive(free_exploration=False, evaluation=False):
                     last_state = None
                     lost_transition = None
                     onroad_streak = 0.0
-                    if not evaluation:
-                        save_visual(weights, steps, best_streak, policy_path)
+                    save_visual(weights, steps, best_streak, policy_path)
                     status = "VISUAL AI STOPPED - all keys released"
+                    emergency_stop = True
                 if keys.takeover.is_set():
                     keys.takeover.clear()
                     keys.toggle.clear()
@@ -774,12 +758,49 @@ def ai_drive(free_exploration=False, evaluation=False):
                     last_state = None
                     lost_transition = None
                     onroad_streak = 0.0
-                    if not evaluation:
-                        save_visual(weights, steps, best_streak, policy_path)
+                    save_visual(weights, steps, best_streak, policy_path)
                     status = "VISUAL AI MANUAL TAKEOVER - F8 to resume"
-                if keys.toggle.is_set():
+                    emergency_stop = True
+                message_received = False
+                resume_requested = False
+                message = None
+                now = time.monotonic()
+                if now - last_message_check >= 0.25:
+                    last_message_check = now
+                    try:
+                        message = json.loads(DRIVER_MESSAGE.read_text(encoding="utf-8"))
+                    except (OSError, ValueError, TypeError):
+                        pass
+                if (
+                    isinstance(message, dict)
+                    and message.get("session_id") == session_id
+                    and isinstance(message.get("id"), str)
+                    and message["id"] != last_message_id
+                    and isinstance(message.get("sent_at"), (int, float))
+                    and 0 <= time.time() - message["sent_at"] < 30
+                ):
+                    message_received = True
+                    last_message_id = message["id"]
+                    action = message.get("action")
+                    if action == "pause":
+                        keys.toggle.clear()
+                        active = False
+                        output.release_all()
+                        last_state = None
+                        lost_transition = None
+                        onroad_streak = 0.0
+                        status = "VISUAL AI PAUSED BY CHAT"
+                        last_message_result = "I released the driving keys and paused. The car may still coast."
+                    elif action == "resume" and not emergency_stop:
+                        resume_requested = True
+                        last_message_result = "Resume accepted. I will drive when Roblox has focus; F9 still stops me."
+                    elif action == "resume":
+                        last_message_result = "F9 or manual takeover took priority; I remain paused."
+                    else:
+                        last_message_result = f"I received your message. My current state is: {status}. No driving control changed."
+                if keys.toggle.is_set() or resume_requested:
                     keys.toggle.clear()
-                    active = not active and v1.user32.GetForegroundWindow() == hwnd
+                    active = True if resume_requested else not active and v1.user32.GetForegroundWindow() == hwnd
                     output.release_all()
                     last_state = None
                     lost_transition = None
@@ -792,7 +813,7 @@ def ai_drive(free_exploration=False, evaluation=False):
                     scene_motion = False
                     last_road_at = None
                     offroad_since = None
-                    status = ("VISUAL AI EVALUATING" if evaluation else "VISUAL AI TRAINING") if active else "VISUAL AI PAUSED - focus Roblox, then F8"
+                    status = "VISUAL AI TRAINING" if active else "VISUAL AI PAUSED - focus Roblox, then F8"
                 area = v1.client_capture_area(hwnd) if hwnd else None
                 if area is None:
                     output.release_all()
@@ -807,16 +828,20 @@ def ai_drive(free_exploration=False, evaluation=False):
                     offroad_since = None
                     hwnd = v1.find_game_window(settings["window_title"]) or hwnd
                     status = "VISUAL AI WAITING - Roblox unavailable" if active else "VISUAL AI PAUSED - focus Roblox, then F8"
+                    now = time.monotonic()
+                    if message_received or now - last_status_write >= 2.0:
+                        publish_status(False, None, None, "Roblox unavailable" if active else "Paused")
+                        last_status_write = now
                     preview = cv2.resize(frame, None, fx=min(1.0, 1000 / frame.shape[1]), fy=min(1.0, 1000 / frame.shape[1]))
                     cv2.rectangle(preview, (0, 0), (preview.shape[1], 40), (0, 0, 0), -1)
                     cv2.putText(preview, status, (12, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                     cv2.imshow("Driving Empire visual AI", preview)
-                    key = cv2.waitKey(20) & 0xFF
-                    if (not free_exploration and key == ord("q")) or cv2.getWindowProperty("Driving Empire visual AI", cv2.WND_PROP_VISIBLE) < 1:
+                    if cv2.waitKey(20) & 0xFF == ord("q") or cv2.getWindowProperty("Driving Empire visual AI", cv2.WND_PROP_VISIBLE) < 1:
                         break
                     time.sleep(0.1)
                     continue
                 focused = v1.user32.GetForegroundWindow() == hwnd
+                observed_motion = None
                 if focused:
                     try:
                         frame = np.asarray(capture.grab(area))[:, :, :3].copy()
@@ -832,8 +857,7 @@ def ai_drive(free_exploration=False, evaluation=False):
                         last_road_at = None
                         offroad_since = None
                         status = "VISUAL AI WAITING - screen capture failed"
-                        key = cv2.waitKey(20) & 0xFF
-                        if (not free_exploration and key == ord("q")) or cv2.getWindowProperty("Driving Empire visual AI", cv2.WND_PROP_VISIBLE) < 1:
+                        if cv2.waitKey(20) & 0xFF == ord("q") or cv2.getWindowProperty("Driving Empire visual AI", cv2.WND_PROP_VISIBLE) < 1:
                             break
                         time.sleep(0.1)
                         continue
@@ -860,8 +884,7 @@ def ai_drive(free_exploration=False, evaluation=False):
                         motion_at = now
                     if road is not None:
                         last_road_at = now
-                    hud_visible = not menu_open and speed_hud_visible(frame)
-                    hud_motion = speed_moving(frame) if hud_visible else None
+                    hud_motion = None if menu_open else speed_moving(frame)
                     moving = hud_motion
                     if moving is None and (free_exploration or (last_road_at is not None and now - last_road_at < 3.0)):
                         moving = scene_motion
@@ -869,13 +892,13 @@ def ai_drive(free_exploration=False, evaluation=False):
                         offroad_since = offroad_since or now
                         if now - offroad_since >= 30.0 and now >= retry_recovery_at:
                             output.release_all()
-                            recovery_attempts += int(evaluation)
                             respawn_character(hwnd, keys, output)
                             retry_recovery_at = time.monotonic() + 5.0
                             offroad_since = time.monotonic()
                             moving = None
                     else:
                         offroad_since = None
+                    observed_motion = moving
                     if moving is None:
                         output.release_all()
                         onroad_streak = 0.0
@@ -886,31 +909,26 @@ def ai_drive(free_exploration=False, evaluation=False):
                         missing_since = missing_since or now
                         if now - missing_since >= 0.6 and lost_transition is not None:
                             lost_state, lost_action = lost_transition
-                            if evaluation:
-                                record_evaluation(lost_action, frame, None, None, -3.0, True, now - action_since)
+                            transition = (lost_state, lost_action, -3.0, lost_state, True)
+                            if len(replay) < 2000:
+                                replay.append(transition)
                             else:
-                                transition = (lost_state, lost_action, -3.0, lost_state, True)
-                                if len(replay) < 2000:
-                                    replay.append(transition)
-                                else:
-                                    replay[replay_slot] = transition
-                                replay_slot = (replay_slot + 1) % 2000
-                                steps += 1
+                                replay[replay_slot] = transition
+                            replay_slot = (replay_slot + 1) % 2000
+                            steps += 1
                             lost_transition = None
-                            if not evaluation and len(replay) >= 32:
+                            if len(replay) >= 32:
                                 train_visual(weights, target_weights, replay, rng)
-                            if not evaluation and steps % 200 == 0:
+                            if steps % 200 == 0:
                                 target_weights = [weight.copy() for weight in weights]
-                            if not evaluation and steps % 100 == 0:
+                            if steps % 100 == 0:
                                 save_visual(weights, steps, best_streak, policy_path)
                         if now - missing_since >= 20.0 and now >= retry_recovery_at:
-                            recovery_attempts += int(evaluation)
                             respawned = respawn_character(hwnd, keys, output)
                             missing_since = time.monotonic()
                             retry_recovery_at = missing_since + 5.0
                             status = "VISUAL AI RECOVERING - character respawn requested" if respawned else "VISUAL AI WAITING - focus Roblox"
                         elif now - missing_since >= 0.6 and now >= retry_recovery_at:
-                            recovery_attempts += int(evaluation)
                             try:
                                 recovered = recover_car(capture, hwnd, keys, output, rng.randrange(4))
                             except (OSError, mss.exception.ScreenShotError):
@@ -929,15 +947,11 @@ def ai_drive(free_exploration=False, evaluation=False):
                         if last_state is not None and (now - action_since >= (0.60 if not moving else 0.25) or stuck):
                             visual_change = float(np.mean(np.abs(state[:-1] - last_state[:-1])))
                             alignment = road_state(road, frame.shape[1], settings["car_x_fraction"])[1] if road is not None else None
-                            if free_exploration:
-                                driving_motion = hud_motion if hud_motion is not None else (scene_motion if hud_visible else None)
-                            else:
-                                driving_motion = moving
-                            if driving_motion and alignment is not None and alignment <= 0.25:
+                            if moving and alignment is not None and alignment <= 0.25:
                                 reward = 0.20 + 0.40 * (1 - alignment / 0.25) + min(0.10, 2 * visual_change)
                             else:
-                                reward = -0.25 if driving_motion else -0.20
-                            if free_exploration and not hud_visible:
+                                reward = -0.25 if moving else -0.20
+                            if free_exploration:
                                 small_view = cv2.resize(frame, (16, 9), interpolation=cv2.INTER_AREA)
                                 signature = hash((small_view // 32).tobytes())
                                 if signature not in seen_views:
@@ -945,34 +959,30 @@ def ai_drive(free_exploration=False, evaluation=False):
                                     if len(seen_views) > 200000:
                                         seen_views.pop()
                                     reward += 0.30
-                            if driving_motion and alignment is not None and alignment <= 0.25:
+                            if moving and alignment is not None and alignment <= 0.25:
                                 onroad_streak += now - action_since
                                 best_streak = max(best_streak, onroad_streak)
                             else:
                                 onroad_streak = 0.0
                             if stuck:
                                 reward = -2.0
-                            if evaluation:
-                                record_evaluation(last_action, frame, moving, alignment, reward, stuck, now - action_since)
+                            transition = (last_state, last_action, reward, state, stuck)
+                            if len(replay) < 2000:
+                                replay.append(transition)
                             else:
-                                transition = (last_state, last_action, reward, state, stuck)
-                                if len(replay) < 2000:
-                                    replay.append(transition)
-                                else:
-                                    replay[replay_slot] = transition
-                                replay_slot = (replay_slot + 1) % 2000
-                                steps += 1
-                                if len(replay) >= 32:
-                                    train_visual(weights, target_weights, replay, rng)
-                                if steps % 200 == 0:
-                                    target_weights = [weight.copy() for weight in weights]
-                                if steps % 100 == 0:
-                                    save_visual(weights, steps, best_streak, policy_path)
+                                replay[replay_slot] = transition
+                            replay_slot = (replay_slot + 1) % 2000
+                            steps += 1
+                            if len(replay) >= 32:
+                                train_visual(weights, target_weights, replay, rng)
+                            if steps % 200 == 0:
+                                target_weights = [weight.copy() for weight in weights]
+                            if steps % 100 == 0:
+                                save_visual(weights, steps, best_streak, policy_path)
                             last_state = None
                             cooldown_until = now
                         if stuck and now >= retry_recovery_at:
                             output.release_all()
-                            recovery_attempts += int(evaluation)
                             try:
                                 recovered = recover_car(capture, hwnd, keys, output, rng.randrange(4))
                             except (OSError, mss.exception.ScreenShotError):
@@ -987,22 +997,15 @@ def ai_drive(free_exploration=False, evaluation=False):
                                 retry_recovery_at = stuck_since + 2.0
                                 status = "VISUAL AI RETRYING - recovery failed"
                         elif last_state is None and now >= cooldown_until:
-                            epsilon = 0.0 if evaluation else max(0.08, 0.40 - 0.32 * steps / 50000)
-                            if free_exploration and not evaluation:
+                            epsilon = max(0.08, 0.40 - 0.32 * steps / 50000)
+                            if free_exploration:
                                 epsilon = max(epsilon, 0.25)
-                            if not moving and not evaluation:
+                            if not moving:
                                 epsilon = max(epsilon, 0.65)
-                            in_car = free_exploration and hud_visible
-                            if in_car and hud_motion is False:
-                                action = 0
-                                selection = "start_car"
-                            elif rng.random() < epsilon:
-                                action = rng.randrange(3 if in_car else len(actions))
-                                selection = "explore"
+                            if rng.random() < epsilon:
+                                action = rng.randrange(len(actions))
                             else:
-                                values = visual_values(state, weights)
-                                action = int(np.argmax(values[:3] if in_car else values))
-                                selection = "greedy"
+                                action = int(np.argmax(visual_values(state, weights)))
                             if action < len(AI_ACTIONS):
                                 output.set_pressed({codes[name] for name in AI_ACTIONS[action]})
                                 names = "+".join(AI_ACTIONS[action]).upper()
@@ -1024,14 +1027,24 @@ def ai_drive(free_exploration=False, evaluation=False):
                             last_state = state
                             last_action = action
                             action_since = now
-                            if evaluation:
-                                evaluation_actions += 1
-                                last_action_id = evaluation_actions
-                                action_writer.writerow((last_action_id, round(time.time(), 3), repr(actions[action]), selection, hud_visible, hud_motion))
-                                action_file.flush()
-                            label = ("GAME EVALUATION" if evaluation else "GAME EXPLORER") if free_exploration else ("ROAD EVALUATION" if evaluation else "ROAD GOAL")
-                            count = evaluation_steps if evaluation else steps
-                            status = f"{label} - {count} steps | road {onroad_streak:.0f}s | best {best_streak:.0f}s | {names}"
+                            label = "GAME EXPLORER" if free_exploration else "ROAD GOAL"
+                            status = f"{label} - {steps} steps | road {onroad_streak:.0f}s | best {best_streak:.0f}s | {names}"
+                now = time.monotonic()
+                if message_received or now - last_status_write >= 2.0:
+                    if not active:
+                        issue = "Paused"
+                    elif not focused:
+                        issue = "Roblox is not focused"
+                    elif missing_since is not None and now - missing_since >= 2.0:
+                        issue = "Cannot verify the car is active; attempting recovery"
+                    elif stuck_since is not None and now - stuck_since >= 5.0:
+                        issue = "Car appears stationary"
+                    elif preview_road is None:
+                        issue = "Road not detected in the screenshot"
+                    else:
+                        issue = ""
+                    publish_status(focused, preview_road is not None if focused else None, observed_motion, issue)
+                    last_status_write = now
                 scale = min(1.0, 1000 / frame.shape[1])
                 preview = cv2.resize(frame, None, fx=scale, fy=scale)
                 if focused and preview_road is not None:
@@ -1043,50 +1056,25 @@ def ai_drive(free_exploration=False, evaluation=False):
                     road_label = "NO ROAD DETECTED"
                 cv2.rectangle(preview, (0, 0), (preview.shape[1], 70), (0, 0, 0), -1)
                 cv2.putText(preview, status, (12, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                if free_exploration:
-                    controls = "F8 start/pause | physical driving key takes over | close window to quit"
-                else:
-                    controls = "F8 start/pause | F9 stop | physical driving key takes over | Q quit"
-                cv2.putText(preview, controls, (12, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                cv2.putText(preview, "F8 start/pause | F9 stop | physical driving key takes over | Q quit", (12, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 cv2.putText(preview, road_label, (12, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 220, 0) if preview_road is not None else (0, 0, 255), 2)
                 cv2.imshow("Driving Empire visual AI", preview)
                 key = cv2.waitKey(20) & 0xFF
-                if (not free_exploration and key == ord("q")) or cv2.getWindowProperty("Driving Empire visual AI", cv2.WND_PROP_VISIBLE) < 1:
+                if key == ord("q") or cv2.getWindowProperty("Driving Empire visual AI", cv2.WND_PROP_VISIBLE) < 1:
                     break
     finally:
         output.release_all()
         keys.close()
         cv2.destroyAllWindows()
-        if evaluation:
-            if action_file is not None:
-                action_file.close()
-            if evaluation_file is not None:
-                evaluation_file.close()
-                summary = {
-                    "checkpoint": str(policy_path),
-                    "checkpoint_sha256": checkpoint_hash,
-                    "steps": evaluation_steps,
-                    "actions": evaluation_actions,
-                    "detected_road_moving_seconds": round(road_seconds, 2),
-                    "moving_without_aligned_road_seconds": round(unaligned_seconds, 2),
-                    "stopped_seconds": round(stopped_seconds, 2),
-                    "lost_car_events": lost_events,
-                    "recovery_attempts": recovery_attempts,
-                }
-                (evaluation_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-                print(f"Evaluation saved to {evaluation_dir}")
-        else:
-            save_visual(weights, steps, best_streak, policy_path)
+        save_visual(weights, steps, best_streak, policy_path)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Driving Empire Version 2 learning prototype")
-    parser.add_argument("mode", choices=("record", "train", "drive", "self_train", "self_train_auto", "self_train_free", "evaluate_auto", "evaluate_free"))
+    parser.add_argument("mode", choices=("record", "train", "drive", "self_train", "self_train_auto", "self_train_free"))
     args = parser.parse_args()
     try:
         {"record": record, "train": train, "drive": drive, "self_train": lambda: drive(self_training=True),
-         "self_train_auto": ai_drive, "self_train_free": lambda: ai_drive(free_exploration=True),
-         "evaluate_auto": lambda: ai_drive(evaluation=True),
-         "evaluate_free": lambda: ai_drive(free_exploration=True, evaluation=True)}[args.mode]()
+         "self_train_auto": ai_drive, "self_train_free": lambda: ai_drive(free_exploration=True)}[args.mode]()
     except (OSError, RuntimeError, ValueError, KeyError) as error:
         raise SystemExit(str(error)) from error

@@ -2,6 +2,8 @@
 /graft/
 /build/
 /dist/
+/build-fast/
+/dist-fast/
 /work/
 /__pycache__/
 /src/__pycache__/

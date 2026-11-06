@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><AssemblyName>XboxUniversalLauncher-Setup</AssemblyName><StartupObject>XboxLauncher.Setup.SetupApp</StartupObject></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Launcher.Core/Launcher.Core.csproj"/><EmbeddedResource Include="../../outputs/win-x64/XboxUniversalLauncher.exe" LogicalName="LauncherPayload" /></ItemGroup>
+</Project>

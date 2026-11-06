@@ -1,0 +1,26 @@
+/2026-09-17
+
+# Generated files and local environments
+**/build/
+**/dist/
+**/bin/
+**/obj/
+**/Intermediate/
+**/Saved/
+**/Binaries/
+**/Packaged/
+**/DerivedDataCache/
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.tools/
+**/.cache/
+**/.godot/
+**/graft/
+**/*.pyc
+**/*.pdb
+**/*.pch
+**/.env
+!**/.env.example
+**/private/

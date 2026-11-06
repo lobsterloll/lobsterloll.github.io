@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import tkinter as tk
+from tkinter import messagebox, simpledialog
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -23,13 +24,12 @@ USER32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
 VK_W = 0x57
 CAPTURE_FPS = 120
 CAPTURE_INTERVAL = 1 / CAPTURE_FPS
-BG = "#0B111B"
-CARD = "#142031"
-BORDER = "#27394E"
-TEXT = "#F4F8FF"
-MUTED = "#8EA2B9"
-ACCENT = "#55DDD5"
-GOLD = "#F2C879"
+BG = "#1C1D20"
+CARD = "#292B2F"
+BORDER = "#3A3D42"
+TEXT = "#F0F1F2"
+MUTED = "#A7ABB0"
+ACCENT = "#8CB4EC"
 DATA_DIR = Path(os.environ["LOCALAPPDATA"]) / "0-100timer"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 SETTINGS = DATA_DIR / "settings.json"
@@ -49,7 +49,7 @@ class Overlay:
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 1.0)
         self.root.configure(bg=BG)
-        self.root.geometry("340x410+80+140")
+        self.root.geometry("320x396+80+140")
         self.root.resizable(False, False)
         self.reference = Image.open(REFERENCE).convert("1")
         self.zero_size = None
@@ -58,6 +58,8 @@ class Overlay:
         self.last_speed_reading = None
         self.state = TimerState()
         self.settings = self.load_settings()
+        self.history = self.settings.get("history", [])
+        self.history_page_index = 0
         stored_bests = self.settings.get("bests", {})
         self.state.bests = {target: stored_bests.get(str(target))
                             for target in TARGETS}
@@ -92,84 +94,105 @@ class Overlay:
 
     def save_settings(self):
         SETTINGS.write_text(json.dumps({"region": self.region,
-                                        "bests": self.state.bests}, indent=2),
+                                        "bests": self.state.bests,
+                                        "history": self.history}, indent=2),
                             encoding="utf-8")
 
     def build_ui(self):
-        panel = tk.Frame(self.root, bg=BG, padx=10, pady=8)
+        tabs = tk.Frame(self.root, bg=BG, padx=12, pady=6)
+        tabs.pack(fill="x")
+        self.timer_tab = tk.Button(tabs, text="Timer", command=self.show_timer,
+                                   bg=BG, fg=TEXT, activebackground=BG,
+                                   activeforeground=TEXT, relief="flat", bd=0,
+                                   font=("Segoe UI", 9, "bold"), cursor="hand2")
+        self.timer_tab.pack(side="left", padx=(0, 14))
+        self.history_tab = tk.Button(tabs, text="Saved", command=self.show_history,
+                                     bg=BG, fg=MUTED, activebackground=BG,
+                                     activeforeground=TEXT, relief="flat", bd=0,
+                                     font=("Segoe UI", 9), cursor="hand2")
+        self.history_tab.pack(side="left")
+        self.fps_label = tk.Label(tabs, text="-- fps", bg=BG, fg=MUTED,
+                                  font=("Segoe UI", 8))
+        self.fps_label.pack(side="right")
+        tk.Frame(self.root, bg=BORDER, height=1).pack(fill="x")
+
+        self.timer_page = tk.Frame(self.root, bg=BG)
+        self.history_page = tk.Frame(self.root, bg=BG)
+        self.timer_page.pack(fill="both", expand=True)
+        panel = tk.Frame(self.timer_page, bg=BG, padx=12, pady=10)
         panel.pack(fill="both", expand=True)
 
-        header = tk.Frame(panel, bg=BG)
-        header.pack(fill="x")
-        heading = tk.Frame(header, bg=BG)
-        heading.pack(side="left", fill="y")
-        tk.Label(heading, text="ACCEL TIMER", bg=BG, fg=TEXT,
-                 font=("Segoe UI", 12, "bold")).pack(anchor="w")
-        tk.Label(heading, text="DRIVING EMPIRE · 0–300", bg=BG, fg=MUTED,
-                 font=("Segoe UI", 7, "bold")).pack(anchor="w")
-        rate_box = tk.Frame(header, bg="#19313B", padx=5, pady=1)
-        rate_box.pack(side="right")
-        tk.Label(rate_box, text="CAPTURES/S", bg="#19313B", fg="#9AC5C7",
-                 font=("Segoe UI", 7, "bold")).pack()
-        self.fps_label = tk.Label(rate_box, text="--", bg="#19313B", fg=ACCENT,
-                                  font=("Segoe UI", 9, "bold"))
-        self.fps_label.pack()
-
-        tk.Frame(panel, bg=BORDER, height=1).pack(fill="x", pady=(5, 6))
-
-        clock_card = tk.Frame(panel, bg=CARD, highlightbackground=BORDER,
-                              highlightthickness=1, padx=10, pady=3)
-        clock_card.pack(fill="x")
-        tk.Label(clock_card, text="CURRENT RUN", bg=CARD, fg=MUTED,
-                 font=("Segoe UI", 7, "bold")).pack(anchor="w")
-        self.time_label = tk.Label(clock_card, text="0.000 s", bg=CARD, fg=TEXT,
-                                   font=("Segoe UI", 23, "bold"))
+        self.time_label = tk.Label(panel, text="0.000 s", bg=BG, fg=TEXT,
+                                   font=("Segoe UI", 28, "bold"))
         self.time_label.pack(anchor="w")
-        self.status_label = tk.Label(clock_card, text="WAITING FOR 0 km/h", bg=CARD,
-                                     fg=GOLD, font=("Segoe UI", 8, "bold"))
-        self.status_label.pack(anchor="w")
+        self.status_label = tk.Label(panel, text="Waiting for 0 km/h", bg=BG,
+                                     fg=MUTED, font=("Segoe UI", 9))
+        self.status_label.pack(anchor="w", pady=(0, 8))
 
-        section = tk.Frame(panel, bg=BG)
-        section.pack(fill="x", pady=(6, 3))
-        tk.Label(section, text="SPLIT TIMES", bg=BG, fg=MUTED,
-                 font=("Segoe UI", 7, "bold")).pack(side="left")
+        tk.Frame(panel, bg=BORDER, height=1).pack(fill="x", pady=(0, 5))
 
         self.split_labels = {}
         self.best_labels = {}
-        self.split_markers = {}
         self.split_highlight = {target: False for target in TARGETS}
         for target in TARGETS:
-            row = tk.Frame(panel, bg=CARD, height=36,
-                           highlightbackground=BORDER, highlightthickness=1)
-            row.pack(fill="x", pady=(0, 3))
+            row = tk.Frame(panel, bg=BG, height=36)
+            row.pack(fill="x")
             row.pack_propagate(False)
-            marker = tk.Frame(row, bg=BORDER, width=3)
-            marker.pack(side="left", fill="y")
-            self.split_markers[target] = marker
-            content = tk.Frame(row, bg=CARD, padx=9)
-            content.pack(fill="both", expand=True)
-            tk.Label(content, text=f"0 → {target}", fg=TEXT, bg=CARD,
-                     font=("Segoe UI", 10, "bold")).pack(side="left")
-            self.best_labels[target] = tk.Label(content, text="BEST —", fg=GOLD,
-                                                 bg=CARD, font=("Segoe UI", 7))
-            self.best_labels[target].pack(side="left", padx=(8, 0))
-            self.split_labels[target] = tk.Label(content, text="—", fg=MUTED,
-                                                  bg=CARD, font=("Segoe UI", 13, "bold"))
+            tk.Label(row, text=f"0–{target} km/h", fg=TEXT, bg=BG,
+                     font=("Segoe UI", 9, "bold")).pack(side="left")
+            self.best_labels[target] = tk.Label(row, text="Best —", fg=MUTED,
+                                                 bg=BG, font=("Segoe UI", 7))
+            self.best_labels[target].pack(side="left", padx=(9, 0))
+            self.split_labels[target] = tk.Label(row, text="—", fg=MUTED,
+                                                  bg=BG, font=("Segoe UI", 11, "bold"))
             self.split_labels[target].pack(side="right")
+            if target != TARGETS[-1]:
+                tk.Frame(panel, bg=BORDER, height=1).pack(fill="x")
 
-        tk.Button(panel, text="RECORD AGAIN", command=self.reset, bg=ACCENT,
-                  fg=BG, activebackground="#8EF2E9", activeforeground=BG,
-                   font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
-                   cursor="hand2", pady=2).pack(fill="x", pady=(3, 4))
+        tk.Button(panel, text="Record again", command=self.reset, bg="#3D6FA8",
+                  fg=TEXT, activebackground="#5182BA", activeforeground=TEXT,
+                  font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
+                  cursor="hand2", pady=3).pack(fill="x", pady=(9, 5))
+        tk.Button(panel, text="Save run", command=self.save_run, bg=CARD,
+                  fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
+                  font=("Segoe UI", 8), relief="flat", bd=0,
+                  cursor="hand2", pady=2).pack(fill="x", pady=(0, 5))
         actions = tk.Frame(panel, bg=BG)
         actions.pack(fill="x")
-        for label, command in (("SET SPEED AREA", self.select_region),
-                               ("CLEAR BESTS", self.clear_best)):
-            tk.Button(actions, text=label, command=command, bg="#1C2B3B",
-                      fg="#BDD0E0", activebackground="#30475E",
-                      activeforeground=TEXT, font=("Segoe UI", 8, "bold"),
-                       relief="flat", bd=0, cursor="hand2", pady=2).pack(
-                          side="left", fill="x", expand=True, padx=(0, 3) if label == "SET SPEED AREA" else (3, 0))
+        for column, (label, command) in enumerate((("Set speed area", self.select_region),
+                                                    ("Clear bests", self.clear_best))):
+            tk.Button(actions, text=label, command=command, bg=CARD,
+                      fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
+                      font=("Segoe UI", 8), relief="flat", bd=0,
+                      cursor="hand2", pady=2).pack(
+                          side="left", fill="x", expand=True,
+                          padx=(0, 3) if column == 0 else (3, 0))
+
+        history = tk.Frame(self.history_page, bg=BG, padx=12, pady=10)
+        history.pack(fill="both", expand=True)
+        self.history_count = tk.Label(history, bg=BG, fg=MUTED,
+                                      font=("Segoe UI", 8))
+        self.history_count.pack(anchor="e", pady=(0, 6))
+        tk.Frame(history, bg=BORDER, height=1).pack(fill="x")
+        self.history_list = tk.Frame(history, bg=BG)
+        self.history_list.pack(fill="both", expand=True)
+        footer = tk.Frame(history, bg=BG)
+        footer.pack(fill="x", pady=(5, 0))
+        self.newer_button = tk.Button(footer, text="Newer", command=lambda: self.change_history_page(-1),
+                                      bg=CARD, fg=TEXT, disabledforeground=MUTED,
+                                      activebackground=BORDER, activeforeground=TEXT,
+                                      font=("Segoe UI", 8), relief="flat", bd=0,
+                                      cursor="hand2", padx=10, pady=3)
+        self.newer_button.pack(side="left")
+        self.older_button = tk.Button(footer, text="Older", command=lambda: self.change_history_page(1),
+                                      bg=CARD, fg=TEXT, disabledforeground=MUTED,
+                                      activebackground=BORDER, activeforeground=TEXT,
+                                      font=("Segoe UI", 8), relief="flat", bd=0,
+                                      cursor="hand2", padx=10, pady=3)
+        self.older_button.pack(side="right")
+        self.history_position = tk.Label(footer, bg=BG, fg=MUTED,
+                                          font=("Segoe UI", 8))
+        self.history_position.pack(side="left", fill="x", expand=True)
 
     def show_text(self, label, value):
         if self.display_text.get(label) != value:
@@ -186,6 +209,80 @@ class Overlay:
         self.state.bests = {target: None for target in TARGETS}
         self.save_settings()
         self.reset()
+
+    def save_run(self):
+        times = {str(target): round(split, 3) for target, split in self.state.splits.items()
+                 if split is not None}
+        if not times:
+            messagebox.showinfo("Save run", "Reach 100 km/h before saving a run.",
+                                parent=self.root)
+            return
+        vehicle = simpledialog.askstring("Save run", "Vehicle name:", parent=self.root)
+        if vehicle is None:
+            return
+        vehicle = vehicle.strip()
+        if not vehicle:
+            messagebox.showinfo("Save run", "Enter a vehicle name.", parent=self.root)
+            return
+        self.history.append({"vehicle": vehicle,
+                             "saved_at": time.strftime("%Y-%m-%d %H:%M"),
+                             "times": times})
+        self.save_settings()
+        messagebox.showinfo("Save run", "Run saved. Find it in Saved.", parent=self.root)
+
+    def show_timer(self):
+        self.history_page.pack_forget()
+        self.timer_page.pack(fill="both", expand=True)
+        self.timer_tab.config(fg=TEXT, font=("Segoe UI", 9, "bold"))
+        self.history_tab.config(fg=MUTED, font=("Segoe UI", 9))
+
+    def show_history(self):
+        self.history_page_index = 0
+        self.render_history()
+        self.timer_page.pack_forget()
+        self.history_page.pack(fill="both", expand=True)
+        self.timer_tab.config(fg=MUTED, font=("Segoe UI", 9))
+        self.history_tab.config(fg=TEXT, font=("Segoe UI", 9, "bold"))
+
+    def change_history_page(self, direction):
+        self.history_page_index += direction
+        self.render_history()
+
+    def render_history(self):
+        for child in self.history_list.winfo_children():
+            child.destroy()
+        count = len(self.history)
+        self.history_count.config(text=f"{count} saved run{'s' if count != 1 else ''}")
+        start = self.history_page_index * 2
+        runs = list(reversed(self.history))[start:start + 2]
+        if not runs:
+            tk.Label(self.history_list, text="No saved runs yet.", bg=BG, fg=MUTED,
+                     font=("Segoe UI", 10)).pack(pady=(55, 0))
+        for run in runs:
+            entry = tk.Frame(self.history_list, bg=BG, pady=7)
+            entry.pack(fill="x")
+            tk.Label(entry, text=run["vehicle"], bg=BG, fg=TEXT,
+                     font=("Segoe UI", 10, "bold"), anchor="w", justify="left",
+                     wraplength=285).pack(fill="x")
+            tk.Label(entry, text=run["saved_at"], bg=BG, fg=MUTED,
+                     font=("Segoe UI", 8), anchor="w").pack(fill="x", pady=(1, 4))
+            metrics = tk.Frame(entry, bg=BG)
+            metrics.pack(fill="x")
+            for column, target in enumerate(TARGETS):
+                metrics.columnconfigure(column, weight=1, uniform="splits")
+                cell = tk.Frame(metrics, bg=BG)
+                cell.grid(row=0, column=column, sticky="ew")
+                tk.Label(cell, text=f"0–{target}", bg=BG, fg=MUTED,
+                         font=("Segoe UI", 8), anchor="w").pack(fill="x")
+                split = run["times"].get(str(target))
+                value = f"{split:.3f} s" if split is not None else "—"
+                tk.Label(cell, text=value, bg=BG, fg=TEXT,
+                         font=("Segoe UI", 10, "bold"), anchor="w").pack(fill="x")
+            tk.Frame(self.history_list, bg=BORDER, height=1).pack(fill="x")
+        total_pages = max(1, (count + 1) // 2)
+        self.history_position.config(text=f"{self.history_page_index + 1} / {total_pages}")
+        self.newer_button.config(state="normal" if self.history_page_index else "disabled")
+        self.older_button.config(state="normal" if start + 2 < count else "disabled")
 
     def select_region(self):
         self.root.withdraw()
@@ -340,7 +437,7 @@ class Overlay:
             return
         if self.capture_rate != self.displayed_capture_rate:
             self.displayed_capture_rate = self.capture_rate
-            self.show_text(self.fps_label, str(self.capture_rate))
+            self.show_text(self.fps_label, f"{self.capture_rate} fps")
         try:
             pixels = (generation, image.size, image.tobytes())
             if pixels != self.last_speed_pixels:
@@ -366,19 +463,19 @@ class Overlay:
             if before_bests != self.state.bests:
                 self.save_settings()
             if self.state.status == "FINISHED":
-                status = "FINISHED · click Record again"
+                status = "Finished · click Record again"
             elif self.state.status == "ARMED":
-                status = "READY · press W"
+                status = "Ready · press W"
             elif self.state.status == "READY":
-                status = "WAITING FOR 0 km/h" if shape else "Check speed area"
+                status = "Waiting for 0 km/h" if shape else "Check speed area"
             else:
                 next_target = next((target for target in TARGETS
                                     if self.state.splits[target] is None), 300)
-                status = f"RUNNING · next {next_target} km/h"
+                status = f"Running · next {next_target} km/h"
             self.show_text(self.status_label, status)
             if previous_status != self.state.status:
-                color = {"READY": GOLD, "ARMED": ACCENT,
-                         "RUNNING": ACCENT, "FINISHED": GOLD}[self.state.status]
+                color = {"READY": MUTED, "ARMED": ACCENT,
+                         "RUNNING": ACCENT, "FINISHED": MUTED}[self.state.status]
                 self.status_label.config(fg=color)
             if self.state.status != "RUNNING" or frame_time - self.last_clock_draw >= 0.05:
                 self.show_text(self.time_label, f"{self.state.elapsed:.3f} s")
@@ -387,10 +484,9 @@ class Overlay:
                 split = self.state.splits[target]
                 best = self.state.bests[target]
                 self.show_text(self.split_labels[target], f"{split:.3f} s" if split is not None else "—")
-                self.show_text(self.best_labels[target], f"BEST {best:.3f} s" if best is not None else "BEST —")
+                self.show_text(self.best_labels[target], f"Best {best:.3f} s" if best is not None else "Best —")
                 completed = split is not None
                 if completed != self.split_highlight[target]:
-                    self.split_markers[target].config(bg=ACCENT if completed else BORDER)
                     self.split_labels[target].config(fg=TEXT if completed else MUTED)
                     self.split_highlight[target] = completed
         except (mss.exception.ScreenShotError, ValueError, OSError):

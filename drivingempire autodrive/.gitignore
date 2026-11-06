@@ -6,3 +6,7 @@
 /v2/data/
 /v2/model.npz
 /v2/steering_q.npz
+/v2/local_llm/
+/v2/chat_history.json
+/v2/driver_status.json
+/v2/driver_message.json

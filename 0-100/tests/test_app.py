@@ -1,6 +1,8 @@
 """Regression checks for reusing speed readings without losing input or timestamps."""
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PIL import Image
@@ -27,7 +29,6 @@ class CachedReadingTests(unittest.TestCase):
         app.time_label = object()
         app.split_labels = {target: MagicMock() for target in TARGETS}
         app.best_labels = {target: object() for target in TARGETS}
-        app.split_markers = {target: MagicMock() for target in TARGETS}
         app.split_highlight = {target: False for target in TARGETS}
         app.save_worker = MagicMock()
         app.save_settings = MagicMock()
@@ -72,8 +73,42 @@ class CachedReadingTests(unittest.TestCase):
                 patch("app.is_zero", return_value=False), \
                 patch("app.speed_hundreds", return_value=0):
             app.process_frame((Image.new("RGB", (2, 2)), 1, False, 0))
-        app.show_text.assert_any_call(app.fps_label, "117")
+        app.show_text.assert_any_call(app.fps_label, "117 fps")
         app.root.title.assert_not_called()
+
+
+class RunHistoryTests(unittest.TestCase):
+    def setUp(self):
+        self.overlay = Overlay.__new__(Overlay)
+        self.overlay.root = MagicMock()
+        self.overlay.state = TimerState()
+        self.overlay.region = [1, 2, 3, 4]
+        self.overlay.history = []
+
+    def test_save_run_keeps_reached_splits_and_vehicle_name(self):
+        app = self.overlay
+        app.state.splits[100] = 2.34567
+        app.state.splits[200] = 5.1
+        with tempfile.TemporaryDirectory() as folder:
+            settings = Path(folder) / "settings.json"
+            with patch("app.SETTINGS", settings), \
+                    patch("app.simpledialog.askstring", return_value="  Lotus Emira  "), \
+                    patch("app.messagebox.showinfo"):
+                app.save_run()
+                saved = app.load_settings()
+        self.assertEqual(saved["history"][0]["vehicle"], "Lotus Emira")
+        self.assertEqual(saved["history"][0]["times"], {"100": 2.346, "200": 5.1})
+        self.assertEqual(len(app.history), 1)
+
+    def test_save_run_requires_a_time_and_vehicle_name(self):
+        app = self.overlay
+        with patch("app.simpledialog.askstring", return_value=None) as ask, \
+                patch("app.messagebox.showinfo"):
+            app.save_run()
+            ask.assert_not_called()
+            app.state.splits[100] = 3.0
+            app.save_run()
+        self.assertEqual(app.history, [])
 
 
 if __name__ == "__main__":

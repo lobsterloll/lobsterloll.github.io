@@ -62,14 +62,20 @@ class Reader(threading.Thread):
             return self.state, self.last_report, self.error
 
 
-def run(args) -> int:
+def run(args, stop=None, notify=None) -> int:
+    def report(message, error=False):
+        if notify is not None:
+            notify(message)
+        else:
+            print(message, file=sys.stderr if error else sys.stdout)
+
     if sys.platform != "win32":
-        print("This app requires Windows 10 or 11.", file=sys.stderr)
+        report("This app requires Windows 10 or 11.", error=True)
         return 1
     try:
         import hid
     except ImportError:
-        print("hidapi is missing. Run .\\setup.ps1 first.", file=sys.stderr)
+        report("hidapi is missing. Run .\\setup.ps1 first.", error=True)
         return 1
 
     found = discover(hid)
@@ -84,11 +90,12 @@ def run(args) -> int:
 
     for side, index in (("left", args.left_index), ("right", args.right_index)):
         if index >= len(found[side]):
-            print(f"No {side} Joy-Con at index {index}. Pair it in Windows Settings and run --list.", file=sys.stderr)
+            report(f"No {side} Joy-Con found. Wake or pair it in Windows Bluetooth settings.", error=True)
             return 1
 
     joycons = []
-    stop = threading.Event()
+    if stop is None:
+        stop = threading.Event()
     readers = []
     pad = None
     try:
@@ -96,7 +103,7 @@ def run(args) -> int:
             choice = found[side][index]
             joycon = JoyCon(hid, choice)
             joycons.append(joycon)
-            print(f"{side}: {joycon.initialize()}")
+            report(f"{side}: {joycon.initialize()}")
 
         try:
             import vgamepad as vg
@@ -110,8 +117,9 @@ def run(args) -> int:
         readers = [Reader(joycon, stop) for joycon in joycons]
         for reader in readers:
             reader.start()
-        print("One virtual Xbox controller is active. Test it in joy.cpl, then open Xbox Cloud Gaming.")
-        print("Press Ctrl+C here to disconnect it.")
+        report("Connected: one virtual Xbox controller is active. Open Xbox Cloud Gaming in Edge.")
+        if notify is None:
+            print("Press Ctrl+C here to disconnect it.")
         deadline = time.monotonic() + 2.0
         input_paused = False
         while not stop.is_set():
@@ -126,22 +134,25 @@ def run(args) -> int:
                 output = XboxState()
             elif now - left_at > 0.5 or now - right_at > 0.5:
                 if not input_paused:
-                    print("Joy-Con input paused; releasing controls until both report again.")
+                    report("Waiting for both Joy-Cons to reconnect.")
                 input_paused = True
                 output = XboxState()
             else:
                 if input_paused:
-                    print("Joy-Con input resumed.")
+                    report("Connected: Joy-Con input resumed.")
                 input_paused = False
                 output = combine(left, right)
             send_state(pad, vg, output)
             time.sleep(1 / 60)
-        raise RuntimeError("Joy-Con reader stopped")
+        for reader in readers:
+            if reader.error:
+                raise RuntimeError(f"Joy-Con reader failed: {reader.error}")
+        return 0
     except KeyboardInterrupt:
-        print("Stopping.")
+        report("Stopping.")
         return 0
     except (OSError, RuntimeError, TimeoutError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        report(f"Error: {exc}", error=True)
         return 1
     finally:
         stop.set()
