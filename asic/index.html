@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>My 7-Segment Decoder ASIC</title>
+  <style>
+    body { max-width: 800px; margin: 40px auto; font-family: sans-serif; line-height: 1.6; padding: 0 16px; }
+    img { max-width: 100%; height: auto; margin: 16px 0; border-radius: 6px; }
+    code { background: #f2f2f2; padding: 2px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>7-Segment Decoder ASIC (tt_um_neverwet)</h1>
+  <p>A 7-segment display is that classic retro LED screen on microwaves, clocks, and calculators—seven little bars in a figure-8 (<code>a</code> through <code>g</code>) doing the absolute most to show digits. My chip is a 7-segment decoder, basically a translator turning raw binary into light-up segments.</p>
+
+  <h2>How It Works</h2>
+  <ul>
+    <li><strong>Input (<code>ui_in[3:0]</code>):</strong> Feeding a 4-bit binary number (<code>0</code> to <code>9</code>) down four wires.</li>
+    <li><strong>Output (<code>uo_out[6:0]</code>):</strong> Lighting up the exact combo of seven LED bars for each digit. <code>0</code> hits the six outer bars and leaves the middle off, <code>1</code> only lights the two right-hand bars, <code>8</code> goes FULL POWER with all seven on, and anything <code>10</code> or above nukes all bars off.</li>
+  </ul>
+
+  <h2>GTKWave Simulation</h2>
+  <p>Looking at GTKWave like it's live CCTV footage of my chip behaving: <code>clk</code> is just the clock signal ticking along doing its job, <code>ui_in</code> counts up (<code>00</code> through <code>09</code>, then <code>0A</code> for <code>10</code>), and <code>uo_out</code> spits out the segment hex patterns (<code>3F</code> for <code>0</code>, <code>06</code> for <code>1</code>, all the way to <code>7F</code> for <code>8</code>, then flatlining to <code>00</code> once <code>ui_in</code> hits <code>10</code>).</p>
+  <img src="gtkwave.png" alt="GTKWave simulation">
+
+  <h2>Mistakes &amp; What I Learned</h2>
+  <ul>
+    <li><strong>Module naming:</strong> Tried calling my module <code>tt_um_never-wet</code> and Verilog IMMEDIATELY crashed out because <code>-</code> means subtraction, not a hyphen 🙄 Switched to <code>tt_um_neverwet</code> and boom, syntax error yeeted.</li>
+    <li><strong>7-segment bit order (<code>g f e d c b a</code>):</strong> Messed up bit order and bit widths early on—accidentally gave <code>6</code> an 8-bit width or wrote <code>7</code> backwards like a clown—until I locked every single pattern to <code>g f e d c b a</code>.</li>
+    <li><strong>Testbench (<code>test/test.py</code>):</strong> Nuked the template's default <code>20 + 30 = 50</code> assertion, stepped through <code>0–10</code> with <code>await ClockCycles(dut.clk, 1)</code> between values, and caught a cursed typo where <code>10</code> expected <code>0b0000111</code> instead of <code>0b0000000</code>.</li>
+    <li><strong>GitHub Actions (<code>docs</code> &amp; <code>gds</code>):</strong> Both workflows exploded at first 💀 Fixed them by filling out the <code>pinout:</code> block in <code>info.yaml</code>, keeping the exact <code>## How it works</code> and <code>## How to test</code> headings in <code>docs/info.md</code>, and flipping GitHub Pages to build from GitHub Actions under <strong>Settings &gt; Pages</strong>.</li>
+    <li><strong>Local GTKWave on Windows:</strong> Running this locally on Windows felt like boss-fighting the terminal—installed <code>make</code> and Git (for <code>tr</code>), added <code>cocotb-config</code> to <code>PATH</code>, and ran <code>make -B PWD=.</code> because <code>$(PWD)</code> comes up completely empty in Windows <code>cmd</code>.</li>
+  </ul>
+
+  <h2>Chip Layout</h2>
+  <img src="layout.png" alt="tt_um_neverwet chip layout">
+</body>
+</html>

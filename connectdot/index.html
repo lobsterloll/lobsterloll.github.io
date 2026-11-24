@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ConnectDot — Image to Connect-the-Dots</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <h1>ConnectDot</h1>
+    </div>
+
+    <div class="topbar-actions">
+      <label class="btn btn-primary" for="imageInput">
+        Upload Image
+      </label>
+      <input type="file" id="imageInput" accept="image/*" hidden>
+
+      <button type="button" id="undoBtn" class="btn" disabled>Undo</button>
+      <button type="button" id="hintBtn" class="btn" disabled>Hint</button>
+      <button type="button" id="peekBtn" class="btn" disabled>Peek Original</button>
+      <button type="button" id="completeBtn" class="btn" disabled>Complete</button>
+      <button type="button" id="resetBtn" class="btn" disabled>Reset</button>
+      <button type="button" id="downloadBtn" class="btn" disabled>Download PNG</button>
+      <button type="button" id="printBtn" class="btn" disabled>Print</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Puzzle Settings</h2>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span class="label-with-info">
+              <label for="dotCountInput">Target Dots</label>
+              <button type="button" class="info-btn" aria-label="About Target Dots" aria-expanded="false">!</button>
+            </span>
+            <span id="dotCountValue" class="value-badge">320</span>
+          </div>
+          <p class="control-desc" hidden>Sets roughly how many dots to generate. Lower keeps only key outlines; higher adds finer detail along lines and curves.</p>
+          <input type="range" id="dotCountInput" min="40" max="2500" step="20" value="320">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span class="label-with-info">
+              <label for="sensitivityInput">Edge Sensitivity</label>
+              <button type="button" class="info-btn" aria-label="About Edge Sensitivity" aria-expanded="false">!</button>
+            </span>
+            <span id="sensitivityValue" class="value-badge">50%</span>
+          </div>
+          <p class="control-desc" hidden>Controls how faint an edge can be and still be detected. Higher picks up softer lines and details; lower keeps only bold outlines.</p>
+          <input type="range" id="sensitivityInput" min="10" max="90" step="5" value="50">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span class="label-with-info">
+              <label for="smoothingInput">Noise Smoothing</label>
+              <button type="button" class="info-btn" aria-label="About Noise Smoothing" aria-expanded="false">!</button>
+            </span>
+            <span id="smoothingValue" class="value-badge">2</span>
+          </div>
+          <p class="control-desc" hidden>Blurs busy textures (clouds, water, grain) while keeping main edges sharp. Use 2–3 for photos, 0–1 for clean drawings.</p>
+          <input type="range" id="smoothingInput" min="0" max="3" step="1" value="2">
+        </div>
+
+        <div class="control-group checkbox-group">
+          <label>
+            <input type="checkbox" id="showNumbersInput" checked>
+            Show Numbers
+          </label>
+          <label>
+            <input type="checkbox" id="autoAdvanceInput" checked>
+            Drag to Connect
+          </label>
+        </div>
+
+        <button type="button" id="regenerateBtn" class="btn btn-secondary full-width" disabled>
+          Regenerate Dots
+        </button>
+      </section>
+
+      <section class="panel">
+        <h2>Progress</h2>
+        <div class="progress-stats">
+          <div class="stat">
+            <span class="stat-label">Connected</span>
+            <strong id="progressText">0 / 0</strong>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Next Dot</span>
+            <strong id="nextDotText">—</strong>
+          </div>
+        </div>
+        <div class="progress-bar-track">
+          <div id="progressBarFill" class="progress-bar-fill"></div>
+        </div>
+      </section>
+
+      <section class="panel tips-panel">
+        <h2>How to Play</h2>
+        <ul>
+          <li>Upload any photo, drawing, or silhouette from your computer.</li>
+          <li>Click or drag from <strong>1</strong> to <strong>2</strong>, <strong>3</strong>, and so on.</li>
+          <li>Scroll to zoom, right-click or Space+drag to pan.</li>
+        </ul>
+      </section>
+    </aside>
+
+    <section class="stage-container" id="stageContainer">
+      <div id="dropOverlay" class="drop-overlay">
+        <div class="drop-card">
+          <div class="drop-icon" aria-hidden="true">1 → 2 → 3</div>
+          <h2>Upload an image to turn into Connect-the-Dots</h2>
+          <p>Drop a PNG, JPG, or WebP file here, or click <strong>Upload Image</strong> above.</p>
+          <label class="btn btn-primary" for="imageInput">Choose Image from Computer</label>
+        </div>
+      </div>
+
+      <canvas id="puzzleCanvas"></canvas>
+
+      <div class="zoom-controls" id="zoomControls" hidden>
+        <button type="button" id="zoomOutBtn" class="btn btn-icon" title="Zoom Out">−</button>
+        <span id="zoomLevelText">100%</span>
+        <button type="button" id="zoomInBtn" class="btn btn-icon" title="Zoom In">+</button>
+        <button type="button" id="zoomResetBtn" class="btn btn-small">Fit</button>
+      </div>
+
+      <div id="completeBanner" class="complete-banner" hidden>
+        <div class="complete-card">
+          <h3>Picture Complete!</h3>
+          <p id="completeSummary">You connected all dots.</p>
+          <div class="complete-actions">
+            <button type="button" id="revealOriginalBtn" class="btn btn-primary">Toggle Original</button>
+            <button type="button" id="playAgainBtn" class="btn">Play Again</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="dots-engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -24,3 +24,18 @@
 **/.env
 !**/.env.example
 **/private/
+antsonscreen/DesktopAntInvasion.exe
+antsonscreen/referenced-chatgpt-conversation-this-is-an/outputs/DesktopAntInvasion-source.zip
+antsonscreen/referenced-chatgpt-conversation-this-is-an/outputs/DesktopAntInvasion.exe
+autoclickexitdrivingempire/DrivingEmpireExitClicker.zip
+blockblast/Aster-Blocks-iOS-Project.zip
+blockblast/Aster-Blocks-Offline.zip
+drivingempire autodrive/v2/game_explorer_agent.npz
+drivingempire autodrive/v2/game_explorer_agent.npz
+drivingempire autodrive/v2/road_goal_agent.npz
+keyboardwarrior/Run Keyboard Warrior.lnk
+unrealracinggame/Content/Maps/L_CityBlockout_BuiltData.uasset
+drivingempire autodrive/v2/road_goal_agent.npz
+*.npz
+*.npz
+drivingempire autodrive/v2/game_explorer_agent.npz
