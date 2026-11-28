@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>Engine Simulator 3D</title>
+  <link rel="stylesheet" href="style.css?v=4" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Left / Center: Full-Height 3D Engine Stage + Floating Left Menu + Bottom Pedals -->
+    <section class="stage-area">
+      <div id="viewport3d"></div>
+
+      <!-- Top Floating View & Sound Controls (No Title) -->
+      <div class="stage-top-bar">
+        <div class="vp-controls" id="viewModes">
+          <button class="vp-chip active" data-view="internals">Internals</button>
+          <button class="vp-chip" data-view="cutaway">Cutaway</button>
+          <button class="vp-chip" data-view="solid">Solid</button>
+          <button class="vp-chip" data-view="wireframe">Wireframe</button>
+          <button class="vp-chip" data-view="exploded">Exploded</button>
+        </div>
+        <div class="vp-controls" id="camPresets">
+          <button class="vp-chip" data-cam="iso">3/4</button>
+          <button class="vp-chip" data-cam="front">Front</button>
+          <button class="vp-chip" data-cam="side">Side</button>
+          <button class="vp-chip" data-cam="top">Top</button>
+        </div>
+        <button class="vp-chip sound-chip" id="btnSound">Sound: OFF</button>
+      </div>
+
+      <!-- Left Vertical Category Buttons (Click to open drawer) -->
+      <nav class="left-dock" id="leftDock">
+        <button class="cat-btn" data-cat="cat-engines"><span class="cat-dot"></span><span>Engines</span></button>
+        <button class="cat-btn" data-cat="cat-upgrades"><span class="cat-dot"></span><span>Upgrades</span></button>
+        <button class="cat-btn" data-cat="cat-stages"><span class="cat-dot"></span><span>Stages</span></button>
+        <button class="cat-btn" data-cat="cat-tuning"><span class="cat-dot"></span><span>Tuning</span></button>
+        <button class="cat-btn" data-cat="cat-gearing"><span class="cat-dot"></span><span>Gearing</span></button>
+        <button class="cat-btn" data-cat="cat-dyno"><span class="cat-dot"></span><span>Dyno</span></button>
+      </nav>
+
+      <!-- Collapsible Drawer Panel (opens next to left dock) -->
+      <aside class="drawer" id="catDrawer">
+        <div class="drawer-header">
+          <span id="drawerTitle">Engines</span>
+          <button class="drawer-close" id="btnCloseDrawer" title="Collapse">◀</button>
+        </div>
+
+        <div class="drawer-body">
+          <!-- Category: Engines -->
+          <div class="cat-pane" id="cat-engines">
+            <div class="section-title">Engine Architecture</div>
+            <div class="form-grid">
+              <div class="field"><label>Cylinder Layout</label><select id="cfgLayout"></select></div>
+              <div class="field"><label>Fuel Type (Gas / Diesel)</label><select id="cfgFuelType"></select></div>
+              <div class="field">
+                <label><span>Bore (mm)</span><span id="valBore">86.0</span></label>
+                <input type="range" id="cfgBore" min="70" max="108" step="0.5" value="86" />
+              </div>
+              <div class="field">
+                <label><span>Stroke (mm)</span><span id="valStroke">86.0</span></label>
+                <input type="range" id="cfgStroke" min="65" max="115" step="0.5" value="86" />
+              </div>
+              <div class="field">
+                <label><span>Compression Ratio</span><span id="valCR">9.8:1</span></label>
+                <input type="range" id="cfgCR" min="7.5" max="21.0" step="0.1" value="9.8" />
+              </div>
+              <div class="field">
+                <label>Displacement</label>
+                <div class="disp-box" id="valDisp">1998 cc (2.00 L)</div>
+              </div>
+            </div>
+
+            <div class="section-title">Ambient Conditions (SAE J1349)</div>
+            <div class="form-grid">
+              <div class="field">
+                <label><span>Ambient Temp</span><span id="valAmbTemp">22°C</span></label>
+                <input type="range" id="cfgAmbTemp" min="-10" max="45" step="1" value="22" />
+              </div>
+              <div class="field">
+                <label><span>Baro Pressure</span><span id="valAmbPress">101.3 kPa</span></label>
+                <input type="range" id="cfgAmbPress" min="80" max="105" step="0.5" value="101.3" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Category: Upgrades -->
+          <div class="cat-pane" id="cat-upgrades">
+            <div class="section-title">Induction & Forced Induction</div>
+            <div class="form-grid">
+              <div class="field"><label>Air Intake</label><select id="partIntake"></select></div>
+              <div class="field"><label>Intake Cooling (IC)</label><select id="partIntercooler"></select></div>
+              <div class="field"><label>Turbo / Supercharger</label><select id="partTurbo"></select></div>
+              <div class="field"><label>Turbo Cooling</label><select id="partTurboCooling"></select></div>
+            </div>
+
+            <div class="section-title">Valvetrain, Internals & Fuel</div>
+            <div class="form-grid">
+              <div class="field"><label>Performance Camshaft</label><select id="partCamshaft"></select></div>
+              <div class="field"><label>Forged Internals</label><select id="partInternals"></select></div>
+              <div class="field"><label>Fuel System</label><select id="partFuelSystem"></select></div>
+              <div class="field"><label>Sport Exhaust</label><select id="partExhaust"></select></div>
+            </div>
+
+            <div class="section-title">Cooling Systems</div>
+            <div class="form-grid">
+              <div class="field"><label>Oil Cooling</label><select id="partOilCooling"></select></div>
+              <div class="field"><label>Engine Cooling (Rad)</label><select id="partCooling"></select></div>
+            </div>
+          </div>
+
+          <!-- Category: Stages -->
+          <div class="cat-pane" id="cat-stages">
+            <div class="section-title">Stage Tune Presets</div>
+            <div class="stage-stack" id="stageBar">
+              <button class="stage-card" data-stage="stock"><strong>Stock OEM</strong><span>Factory boost, cast internals, OEM exhaust</span></button>
+              <button class="stage-card" data-stage="stage1"><strong>Stage 1</strong><span>ECU remap + Cold Air Intake + Cat-Back</span></button>
+              <button class="stage-card active" data-stage="stage2"><strong>Stage 2</strong><span>Mid Turbo + FMIC + Street Cam + Turbo-Back</span></button>
+              <button class="stage-card" data-stage="stage3"><strong>Stage 3</strong><span>Big Turbo + Forged Internals + Race Fuel Sys</span></button>
+              <button class="stage-card" data-stage="stage3plus"><strong>Stage 3+ Built</strong><span>Billet Crank + Ti Valves + Water-to-Air + Dry Sump</span></button>
+            </div>
+          </div>
+
+          <!-- Category: Tuning -->
+          <div class="cat-pane" id="cat-tuning">
+            <div class="section-title">ECU Calibration</div>
+            <div class="form-grid">
+              <div class="field">
+                <label><span>Boost Target</span><span id="valBoostTarget">22 PSI</span></label>
+                <input type="range" id="ecuBoost" min="0" max="45" step="0.5" value="22" />
+              </div>
+              <div class="field">
+                <label><span>Target WOT AFR</span><span id="valTargetAfr">11.9:1</span></label>
+                <input type="range" id="ecuAfr" min="9.0" max="16.0" step="0.1" value="11.9" />
+              </div>
+              <div class="field">
+                <label><span>Ignition Timing</span><span id="valTiming">20° BTDC</span></label>
+                <input type="range" id="ecuTiming" min="0" max="38" step="0.5" value="20" />
+              </div>
+              <div class="field">
+                <label><span>Rev Limiter</span><span id="valRevLimit">7500 RPM</span></label>
+                <input type="range" id="ecuRevLimit" min="4000" max="10000" step="100" value="7500" />
+              </div>
+              <div class="toggle-row">
+                <span>Anti-Lag System</span>
+                <input type="checkbox" id="ecuAntilag" />
+              </div>
+              <div class="toggle-row">
+                <span>Pops & Bangs</span>
+                <input type="checkbox" id="ecuPops" checked />
+              </div>
+            </div>
+          </div>
+
+          <!-- Category: Gearing -->
+          <div class="cat-pane" id="cat-gearing">
+            <div class="section-title">Performance Gearing & Drivetrain</div>
+            <div class="form-grid">
+              <div class="field"><label>Gearbox Ratios</label><select id="cfgGearbox"></select></div>
+              <div class="field"><label>Drivetrain</label><select id="cfgDrivetrain"></select></div>
+              <div class="field" style="grid-column: span 2;">
+                <label><span>Final Drive Ratio</span><span id="valFinalDrive">3.91</span></label>
+                <input type="range" id="cfgFinalDrive" min="2.70" max="4.88" step="0.01" value="3.91" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Category: Dyno & All HP -->
+          <div class="cat-pane" id="cat-dyno">
+            <canvas id="dynoCanvas" width="760" height="360"></canvas>
+            <div class="dyno-actions">
+              <span id="dynoPeakSummary" style="font-size:11px;color:var(--text-dim);">Click "Run Dyno" to plot curves.</span>
+              <button class="vp-chip" id="btnPinBaseline">Pin Baseline</button>
+            </div>
+            <div class="dyno-results" id="dynoResultsCard" style="display:none;">
+              <div class="section-title">Dyno Pull Results</div>
+              <div class="dyno-res-grid">
+                <div class="dyno-res-item"><div class="tele-k">Peak Crank</div><div class="dyno-res-v" id="resBhp">-</div><div class="dyno-res-sub" id="resBhpSub">-</div></div>
+                <div class="dyno-res-item"><div class="tele-k">Peak Wheel</div><div class="dyno-res-v" id="resWhp">-</div><div class="dyno-res-sub" id="resWhpSub">-</div></div>
+                <div class="dyno-res-item"><div class="tele-k">Peak Torque</div><div class="dyno-res-v" id="resTq">-</div><div class="dyno-res-sub" id="resTqSub">-</div></div>
+                <div class="dyno-res-item"><div class="tele-k">SAE / PS</div><div class="dyno-res-v" id="resSae">-</div><div class="dyno-res-sub" id="resSaeSub">-</div></div>
+                <div class="dyno-res-item"><div class="tele-k">Peak Boost</div><div class="dyno-res-v" id="resBoost">-</div><div class="dyno-res-sub" id="resBoostSub">-</div></div>
+                <div class="dyno-res-item"><div class="tele-k">Peak EGT</div><div class="dyno-res-v" id="resEgt">-</div><div class="dyno-res-sub" id="resEgtSub">At Redline</div></div>
+              </div>
+            </div>
+            <div class="section-title">All HP & Thermo Telemetry</div>
+            <div class="telemetry-grid">
+              <div class="tele-item"><div class="tele-k">IHP (Indicated)</div><div class="tele-v" id="teleIhp">0.0</div></div>
+              <div class="tele-item"><div class="tele-k">FHP (Friction)</div><div class="tele-v" id="teleFhp">0.0</div></div>
+              <div class="tele-item"><div class="tele-k">BHP (Crank)</div><div class="tele-v" id="teleBhp">0.0</div></div>
+              <div class="tele-item"><div class="tele-k">WHP (Wheel)</div><div class="tele-v" id="teleWhp">0.0</div></div>
+              <div class="tele-item"><div class="tele-k">PS / CV</div><div class="tele-v" id="telePs">0.0</div></div>
+              <div class="tele-item"><div class="tele-k">SAE J1349 HP</div><div class="tele-v" id="teleSae">0.0</div></div>
+              <div class="tele-item"><div class="tele-k">Wheel Torque</div><div class="tele-v" id="teleWhlTq">0 Nm</div></div>
+              <div class="tele-item"><div class="tele-k">BMEP</div><div class="tele-v" id="teleBmep">0.0 bar</div></div>
+              <div class="tele-item"><div class="tele-k">Volumetric Eff.</div><div class="tele-v" id="teleVe">0.0%</div></div>
+              <div class="tele-item"><div class="tele-k">Air Mass Flow</div><div class="tele-v" id="teleAir">0 g/s</div></div>
+              <div class="tele-item"><div class="tele-k">Fuel / BSFC</div><div class="tele-v" id="teleFuel">0 L/h</div></div>
+              <div class="tele-item"><div class="tele-k">Cyl / Knock</div><div class="tele-v" id="teleKnock">0 bar</div></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Warnings -->
+      <div class="vp-warnings">
+        <span class="warn-badge" id="warnKnock">KNOCK / DETONATION</span>
+        <span class="warn-badge" id="warnFuel">FUEL STARVATION</span>
+        <span class="warn-badge" id="warnOverheat">OVERHEAT</span>
+        <span class="warn-badge" id="warnStress">OVERPRESSURE</span>
+      </div>
+
+      <!-- Bottom Pedals & Gear Shift Dock (like reference image) -->
+      <div class="pedals-dock">
+        <div class="shift-col">
+          <button class="round-key-btn" id="btnGearUp" title="Shift Up (E)">+<span class="key-hint">E</span></button>
+          <button class="round-key-btn" id="btnGearDown" title="Shift Down (Q)">−<span class="key-hint">Q</span></button>
+        </div>
+
+        <button class="pedal-btn brake-pedal" id="btnBrakePedal" title="Hold Brake (S)">
+          <span class="key-hint">S</span>
+          <div class="pedal-ribs"><span></span><span></span><span></span><span></span></div>
+        </button>
+
+        <button class="pedal-btn gas-pedal" id="btnGasPedal" title="Hold Throttle (W)">
+          <span class="key-hint">W</span>
+          <div class="pedal-vribs"><span></span><span></span><span></span></div>
+        </button>
+
+        <div class="throttle-hold">
+          <label><span>Hold Gas</span><span id="lblThrottle">0%</span></label>
+          <input type="range" id="sliderThrottle" min="0" max="100" value="0" />
+          <label><span>Dyno Load</span><span id="lblBrake">0%</span></label>
+          <input type="range" id="sliderBrake" min="0" max="100" value="0" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Fixed Telemetry & Control Cluster (like reference image) -->
+    <aside class="right-cluster">
+      <div class="tach-wrap">
+        <canvas id="tachCanvas" width="380" height="300"></canvas>
+      </div>
+
+      <div class="cluster-main-row">
+        <div class="cluster-big">
+          <div class="c-lbl">Speed</div>
+          <div class="c-big-val" id="hudSpeed">0</div>
+          <div class="c-unit">km/h</div>
+        </div>
+        <div class="cluster-big">
+          <div class="c-lbl">Gear</div>
+          <div class="c-big-val" id="hudGear">N</div>
+          <div class="c-unit" id="hudGearRatio">Neutral</div>
+        </div>
+        <div class="cluster-big">
+          <div class="c-lbl">Mode</div>
+          <button class="mode-cycle-btn mode-sport" id="btnModeCycle">SPORT</button>
+          <div class="c-unit" style="margin-top:3px;">Click to cycle</div>
+        </div>
+      </div>
+
+      <div class="cluster-sub-grid">
+        <div class="sub-card">
+          <div class="c-lbl">Boost</div>
+          <div class="sub-val" id="hudBoost">0.0 bar</div>
+          <div class="bar-track"><div class="bar-fill boost-fill" id="barBoost"></div></div>
+        </div>
+        <div class="sub-card">
+          <div class="c-lbl">Temperature</div>
+          <div class="sub-val" id="hudTemps">88°C</div>
+          <div class="bar-track"><div class="bar-fill temp-fill" id="barTemp"></div></div>
+        </div>
+        <div class="sub-card">
+          <div class="c-lbl">Horsepower</div>
+          <div class="sub-val" id="hudHp">0 BHP</div>
+          <div class="sub-mini" id="hudWhp">0 WHP</div>
+        </div>
+      </div>
+
+      <div class="cluster-mini-strip">
+        <span id="hudTorque">0 Nm</span>
+        <span id="hudAfr">AFR 14.7</span>
+        <span id="hudEgt">EGT 420°C</span>
+        <span id="hudZeroToHundred" title="0-100 km/h Stopwatch">0-100: --</span>
+      </div>
+
+      <div class="cluster-actions">
+        <button class="act-btn stop-btn" id="btnToggleEngine">Stop Engine</button>
+        <button class="act-btn dyno-act-btn" id="btnDynoPull">Run Dyno</button>
+      </div>
+
+      <div class="trans-box">
+        <div class="c-lbl" style="margin-bottom:6px;">Transmission</div>
+        <div class="trans-btns">
+          <button class="trans-btn active" id="btnTransAuto">Automatic</button>
+          <button class="trans-btn" id="btnTransManual">Manual</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module" src="app.js?v=4"></script>
+</body>
+</html>
